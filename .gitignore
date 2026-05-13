@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+.next/
+out/
+dist/
+build/
+
+# Environment & secrets — NEVER commit these
+.env
+.env.*
+!.env.example
+*.pem
+.dev.vars
+.wrangler/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+
+# PHI SAFEGUARD — no real patient data ever, anywhere in this repo.
+# Synthetic test data only. If a file looks like it could hold PHI, it does not belong here.
+*.phi
+patient-data/
+real-rosters/

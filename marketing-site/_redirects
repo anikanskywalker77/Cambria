@@ -1,0 +1,12 @@
+# Cloudflare Pages — redirects.
+# Docs: https://developers.cloudflare.com/pages/configuration/redirects/
+# Cloudflare Pages already serves /foo for foo.html, so we mainly normalise the
+# index and catch a couple of likely aliases.
+
+/index.html            /                          301
+/home                  /                          301
+/index                 /                          301
+/products              /index.html#products       301
+/coverage-assistant    /index.html#assistant      301
+/assistant             /index.html#assistant      301
+/refer                 /providers.html            301

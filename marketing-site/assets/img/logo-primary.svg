@@ -1,0 +1,16 @@
+<svg viewBox="0 0 360 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Peterson Medical Equipment">
+  <title>Peterson Medical Equipment</title>
+  <g>
+    <g fill="#0B2545">
+      <rect x="6" y="8"    width="14" height="9.5" rx="4.75"/>
+      <rect x="6" y="21.5" width="14" height="9.5" rx="4.75"/>
+      <rect x="6" y="35"   width="14" height="9.5" rx="4.75"/>
+      <rect x="6" y="48.5" width="14" height="9.5" rx="4.75"/>
+    </g>
+    <path d="M13 12.75 H26 a12 12 0 0 1 0 24 H13" fill="none" stroke="#13B5A5" stroke-width="9.5" stroke-linecap="round"/>
+  </g>
+  <g font-family="Poppins, 'Segoe UI', system-ui, sans-serif" fill="#0B2545">
+    <text x="74" y="29" font-size="20" font-weight="600" letter-spacing="-0.2">Peterson Medical</text>
+    <text x="74" y="49" font-size="13.5" font-weight="500" letter-spacing="3.2" fill="#0E8E82">EQUIPMENT</text>
+  </g>
+</svg>

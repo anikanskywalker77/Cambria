@@ -1,0 +1,12 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Peterson Medical Equipment mark">
+  <title>Peterson Medical Equipment</title>
+  <!-- Stacked "vertebra" segments form the stem of the P (the spine). -->
+  <g fill="#0B2545">
+    <rect x="14" y="8"    width="14" height="9.5" rx="4.75"/>
+    <rect x="14" y="21.5" width="14" height="9.5" rx="4.75"/>
+    <rect x="14" y="35"   width="14" height="9.5" rx="4.75"/>
+    <rect x="14" y="48.5" width="14" height="9.5" rx="4.75"/>
+  </g>
+  <!-- Bowl of the P, teal accent. -->
+  <path d="M21 12.75 H34 a12 12 0 0 1 0 24 H21" fill="none" stroke="#13B5A5" stroke-width="9.5" stroke-linecap="round"/>
+</svg>
