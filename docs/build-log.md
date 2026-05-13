@@ -54,7 +54,8 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 - No analytics snippet yet (Plausible planned).
 - Imagery is brand illustration + placeholders; needs real photos/headshots when available.
 - Static-site Functions weren't run locally (no Node → no `wrangler`). To test before deploy: install Node LTS, `npm i -g wrangler`, `cd marketing-site`, set `ANTHROPIC_API_KEY` in a `.dev.vars` file, `wrangler pages dev .` — then exercise `/api/coverage-assistant`.
-- Repo is `git init`'d but not committed. Awaiting Josh's go-ahead on first commit + remote.
+- Initial commit made (`chore: bootstrap Cambria repo + marketing site v1`, root commit `6dda44a`, 34 files). Author identity was passed per-invocation (Josh Marquardt / jmarquardt@petersonmedicalequipment.com) — no git config was written; run `git config user.email ...` locally if you want it persistent. Branch is `master`. No remote configured yet — `git remote add origin <url> && git push -u origin master` when ready (recommend a private repo).
+- Consider adding a `.gitattributes` (`* text=auto eol=lf`) to stop the LF↔CRLF churn warnings on Windows.
 
 **Open questions raised for Josh** (see also `docs/ai-coverage-assistant.md` §7): the assistant defaults to `claude-sonnet-4-6`; set the `ASSISTANT_MODEL` env var to `claude-haiku-4-5-20251001` for a cheaper/faster variant (no redeploy). Is the assistant gated (provider email required) or open? Currently open, with PHI guardrails. Should we add Anthropic prompt caching on the static system block and a Cloudflare rate-limit rule on `/api/*` before launch? Recommended yes.
 
