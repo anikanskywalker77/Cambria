@@ -33,3 +33,6 @@ npm-debug.log*
 *.phi
 patient-data/
 real-rosters/
+
+.dev.vars*
+!.dev.vars.example
