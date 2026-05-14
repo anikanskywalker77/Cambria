@@ -4,6 +4,26 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 (later) — Contact form wired to email (Resend)
+
+`functions/api/contact.js` was a stub until today — accepted submissions, returned success, but didn't actually deliver. Now wired end-to-end via Resend.
+
+- **Resend account** created. **`petersonmedicalequipment.com` added as a verified sender domain** — DNS records (SPF / DKIM / DMARC TXT records) added to Cloudflare DNS for the zone. Verified successfully (Resend returns green checkmarks on all records).
+- **Resend API key** ("cambria-contact-form", sending-only access, restricted to the `petersonmedicalequipment.com` domain) created. Stored as Cloudflare Pages secret `RESEND_API_KEY` via `wrangler pages secret put`.
+- **Cloudflare Pages secrets set:**
+  - `RESEND_API_KEY` — the `re_…` key
+  - `CONTACT_FROM` = `noreply@petersonmedicalequipment.com`
+  - `CONTACT_TO` = `rx@petersonmedicalequipment.com` (matches the in-code default; explicit for clarity)
+- **Tested both ways:**
+  - Direct call to `https://api.resend.com/emails` with the key + verified domain → `200` with a message id, email arrived in `rx@`
+  - POST to the live `https://petersonmedicalequipment.com/api/contact` with a fake-but-realistic submission → `200 {"ok":true}`, email arrived in `rx@` formatted as our Function builds it (Name / Email / Phone / Organization / Message blocks; Reply-To set to the submitter)
+- **No code change needed** — the contact Function had the Resend code path written from the start; it just falls through to a no-op when the env vars aren't configured. Adding the secrets unlocked it.
+- **Spam / abuse posture:** the form has a honeypot field, a 4000-char message cap, server-side PHI sniff that 422s before sending, basic email-format validation. No per-IP rate limit yet — Cloudflare WAF rules can add one if the form starts seeing bot traffic. Resend's free tier (3,000 sends/month) is more than enough for organic.
+- **Open from-address question:** went with `noreply@petersonmedicalequipment.com` (transactional convention). Other defensible choices were `website@…` or `josh@…` — change anytime by updating the `CONTACT_FROM` Cloudflare secret and redeploying.
+- **Resend domain verification details:** the SPF was merged with the existing Google Workspace SPF (only one SPF record allowed per domain). DKIM was a separate `resend._domainkey` TXT record. DMARC was added at `_dmarc` per Resend's recommended starter policy.
+
+---
+
 ## 2026-05-14 — Live deploy + AI assistant turned on
 
 **The site is live on petersonmedicalequipment.com with a working AI coverage assistant.**
@@ -24,7 +44,7 @@ What happened today:
 - `https://cambria-580.pages.dev/` — Cloudflare's `.pages.dev` URL for the same project
 
 **Still pending** (unchanged):
-- Contact form email delivery (no email provider wired)
+- ~~Contact form email delivery (no email provider wired)~~ ✅ done 2026-05-14, see entry above
 - Plausible analytics
 - Real photography
 - The provider portal — design + build still untouched
@@ -77,7 +97,7 @@ What happened today:
 | `marketing-site/robots.txt`, `marketing-site/sitemap.xml` | Standard. Sitemap lists all 9 pages. |
 
 **Known gaps / next steps** (also tracked in `CLAUDE.md` §7.2):
-- `functions/api/contact.js` doesn't send email yet — needs an email provider.
+- ~~`functions/api/contact.js` doesn't send email yet — needs an email provider.~~ ✅ done 2026-05-14 (Resend), see entry above
 - No analytics snippet yet (Plausible planned).
 - Imagery is brand illustration + placeholders; needs real photos/headshots when available.
 - Static-site Functions weren't run locally (no Node → no `wrangler`). To test before deploy: install Node LTS, `npm i -g wrangler`, `cd marketing-site`, set `ANTHROPIC_API_KEY` in a `.dev.vars` file, `wrangler pages dev .` — then exercise `/api/coverage-assistant`.

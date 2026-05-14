@@ -114,7 +114,7 @@ Full reference: `docs/provider-portal-spec.md` and `docs/hosting-stack-recommend
 ### 5.1 Marketing site — AS BUILT (2026-05-12)
 - **Implementation:** Hand-built static site (semantic HTML5 + a single CSS design-token system + minimal vanilla JS). No build step, no framework. Rationale: Node.js was not installed on the dev machine, "least friction" was the explicit goal, and a 9-page marketing site does not need a framework. Migration to Next.js can be revisited when the portal phase brings Node into the toolchain.
 - **Host:** Cloudflare Pages (you already use Cloudflare for DNS/WAF per §5.2). Was: WP Engine HIPAA Secure Hosting — no longer needed for the marketing site since it holds zero PHI. Reserve WP Engine / Kinsta discussion for if a CMS is ever wanted.
-- **Forms (non-PHI):** the public contact form posts to a Cloudflare Pages Function (`functions/api/contact.js`) which forwards to email. No PHI is ever collected by the public site.
+- **Forms (non-PHI):** the public contact form posts to a Cloudflare Pages Function (`functions/api/contact.js`) which forwards to email via **Resend** (free tier). Sender domain `petersonmedicalequipment.com` is verified in Resend; SPF/DKIM/DMARC records live in Cloudflare DNS. Secrets `RESEND_API_KEY`, `CONTACT_FROM` (`noreply@petersonmedicalequipment.com`), `CONTACT_TO` (`rx@petersonmedicalequipment.com`) are set in Cloudflare Pages. No PHI is ever collected by the public site.
 - **AI feature:** Provider "Coverage & SWO Requirements" assistant — a Cloudflare Pages Function (`functions/api/coverage-assistant.js`) calls the Anthropic Messages API directly (not the Agent SDK — it's single-shot Q&A, not agentic). Model: `env.ASSISTANT_MODEL || "claude-sonnet-4-6"` (set the env var to `claude-haiku-4-5-20251001` for a cheaper/faster variant — no redeploy needed). Grounded in the §3 regulatory constants + §2 product portfolio. Hard rules: no PHI input accepted; every coverage claim pinned to an LCD or CFR cite; disclaimer that it is not a coverage guarantee. Needs `ANTHROPIC_API_KEY` as a Cloudflare secret. See [`docs/ai-coverage-assistant.md`](docs/ai-coverage-assistant.md).
 - **Analytics:** Plausible (cookie-free) — to be added; avoid GA4 with PHI-adjacent URLs.
 
@@ -185,7 +185,7 @@ Validation rules: MBI format check, state ∈ {WA, OR}, F2F date within 6 months
   - `assets/js/coverage-data.js` — machine-readable regulatory + product data (mirrors §2/§3)
   - `assets/js/coverage-assistant.js` — front-end for the AI assistant widget
   - `functions/api/coverage-assistant.js` — Cloudflare Pages Function: calls Anthropic API
-  - `functions/api/contact.js` — Cloudflare Pages Function: contact form → email (stub; needs an email provider wired)
+  - `functions/api/contact.js` — Cloudflare Pages Function: contact form → Resend → `rx@petersonmedicalequipment.com` (live as of 2026-05-14)
   - `_headers`, `_redirects`, `robots.txt`, `sitemap.xml`
 - `docs/build-log.md` — append-only build journal
 - `docs/marketing-site.md` — marketing-site design + IA + deploy doc
@@ -194,7 +194,7 @@ Validation rules: MBI format check, state ∈ {WA, OR}, F2F date within 6 months
 
 ### 7.2 Pending / not yet built
 
-- Wire the contact form Function to a real email sender (Postmark, MailChannels, or Resend)
+- ~~Wire the contact form Function to a real email sender~~ ✅ done 2026-05-14 (Resend; see `docs/build-log.md`)
 - Provision Cloudflare Pages project + custom domain + `ANTHROPIC_API_KEY` secret
 - Plausible analytics snippet
 - Real photography / headshots (currently using brand illustration + placeholders)
