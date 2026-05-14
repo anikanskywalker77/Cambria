@@ -28,6 +28,17 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Python build artifacts (the build-swo-*.py scripts in tools/)
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+
+# Local smoke-test outputs from the PDF build scripts
+tools/_*.pdf
+tools/*-smoketest.pdf
+
 # PHI SAFEGUARD — no real patient data ever, anywhere in this repo.
 # Synthetic test data only. If a file looks like it could hold PHI, it does not belong here.
 *.phi
