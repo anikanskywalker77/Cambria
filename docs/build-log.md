@@ -4,6 +4,33 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 — Live deploy + AI assistant turned on
+
+**The site is live on petersonmedicalequipment.com with a working AI coverage assistant.**
+
+What happened today:
+
+- **Node.js LTS installed** on Josh's machine (v26 / npm v11) so we could finally use Wrangler. Required for the portal phase too.
+- **Wrangler 4.90.1 installed** globally + authenticated. OAuth login works for interactive use; for programmatic deploys from the assistant's shell we use a `CLOUDFLARE_API_TOKEN` env var (Josh created a token under his Cloudflare profile — token id `c881d89a1fc00952271ab603a93e5fe3`; revoke or rotate when convenient).
+- **Earlier deploy attempts** via the dashboard had failed in two ways: the Git import wasn't detecting the `functions/` folder (treated the project as static-only, blocking the secrets UI), and the Direct Upload path explicitly refused Functions. We worked around the latter at one point by physically moving `functions/` out of `marketing-site/` — and forgot to move it back. That's why the first wrangler deploy was Functions-less.
+- **Found and fixed:** `functions/` was at `cambria/functions/` instead of `cambria/marketing-site/functions/`. Moved it back. Next wrangler deploy printed `✨ Compiled Worker successfully` + `✨ Uploading Functions bundle` and the endpoint started returning a 503 with our friendly "isn't configured yet" message — exactly what the code does when the API key is missing.
+- **Anthropic API key** (`ANTHROPIC_API_KEY`) created in Josh's Anthropic console as "Cambria New" and set as a Pages secret via `wrangler pages secret put ANTHROPIC_API_KEY --project-name cambria`. Initial test then returned `502` with "assistant is unavailable" — the Anthropic call itself was being rejected.
+- **Bug found in `functions/api/coverage-assistant.js`:** the function used the assistant-message prefill trick (`messages: [..., { role: "assistant", content: "{" }]`) to force JSON output. **Sonnet 4.6 returns `invalid_request_error: "This model does not support assistant message prefill"`.** The original Claude.ai system prompt described the prefill trick as standard, which it is for older models, but it doesn't apply to Sonnet 4.6. **Fix:** dropped the prefill (single user message only), removed the `"{" + raw` concatenation in the parser. The system prompt already instructs JSON-only output and `parseModelJSON()` extracts the first-`{` to last-`}` block from any prose around it, so this works on any model. Confirmed live by asking three test questions on `petersonmedicalequipment.com/api/coverage-assistant`: SWO requirements (✓ correctly cited A55426 / 42 CFR 410.38 / L33796), L0651 PA effective date (✓ correctly reasoned about "as of today 2026-05-14"), and a PHI-shaped input (✓ refused before reaching Anthropic).
+- **Custom domain** `petersonmedicalequipment.com` was already attached to the `cambria` Pages project from a prior setup attempt — DNS was already pointed at Cloudflare, so the new deploy went live on the real domain immediately. No DNS work needed today.
+- **`old-cell-aefe`** Workers project (a leftover from when we tried Direct Upload) is now redundant — can be deleted via the Cloudflare dashboard whenever convenient. Doesn't affect anything if left alone.
+
+**Live URLs:**
+- `https://petersonmedicalequipment.com/` — production, custom domain
+- `https://cambria-580.pages.dev/` — Cloudflare's `.pages.dev` URL for the same project
+
+**Still pending** (unchanged):
+- Contact form email delivery (no email provider wired)
+- Plausible analytics
+- Real photography
+- The provider portal — design + build still untouched
+
+---
+
 ## 2026-05-12 — Project bootstrap + marketing site v1
 
 **Context.** Josh asked to start coding the Peterson Medical Equipment website from the Cambria context doc (pulled from Google Drive, file ID `1GZa0zHyVsEcy65qkamueQXle48X3g9Ca`). Decisions reached at kickoff:
@@ -43,7 +70,7 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 | `marketing-site/assets/js/main.js` | Mobile nav toggle, current-year in footer, smooth in-page scroll, small reveal-on-scroll, sets `aria-current` on the active nav link. |
 | `marketing-site/assets/js/coverage-data.js` | Machine-readable mirror of §2 (product portfolio) + §3 (regulatory constants). Exported so the front-end assistant can show quick facts without a round-trip. The Function has its own server-side copy (do not trust the client's). |
 | `marketing-site/assets/js/coverage-assistant.js` | The assistant widget front-end: opens a panel, posts the question to `/api/coverage-assistant`, renders the answer + citations, blocks obvious PHI-looking input client-side before sending, degrades to "call/email us" if the Function is unreachable. |
-| `marketing-site/functions/api/coverage-assistant.js` | Cloudflare Pages Function. Validates input, refuses PHI (before and after the call), builds the system prompt from the embedded regulatory KB + today's date, calls the Anthropic Messages API (model = `env.ASSISTANT_MODEL || "claude-sonnet-4-6"`; `temperature: 0.2`; assistant-turn prefilled with `{` to force JSON), maps citation codes → URLs from a fixed table, returns `{ answer, citations, disclaimer }` or `{ refused, message }`. Needs the `ANTHROPIC_API_KEY` env var (set as a Cloudflare secret, never committed). |
+| `marketing-site/functions/api/coverage-assistant.js` | Cloudflare Pages Function. Validates input, refuses PHI (before and after the call), builds the system prompt from the embedded regulatory KB + today's date, calls the Anthropic Messages API (model = `env.ASSISTANT_MODEL || "claude-sonnet-4-6"`; `temperature: 0.2`; single user turn — no assistant prefill, see 2026-05-14 entry), maps citation codes → URLs from a fixed table, returns `{ answer, citations, disclaimer }` or `{ refused, message }`. Needs the `ANTHROPIC_API_KEY` env var (set as a Cloudflare secret, never committed). |
 | `marketing-site/functions/api/contact.js` | Cloudflare Pages Function for the contact form. Validates + rate-limits, then **stub**: currently just logs receipt and returns success. TODO: wire to Postmark / Resend / MailChannels to actually deliver to `rx@` (kept non-PHI on purpose). |
 | `marketing-site/_headers` | Cloudflare Pages headers: a strict-ish CSP (allows the Google Fonts origins + `self` + the Anthropic call is server-side so no client CSP entry needed for it), HSTS, X-Content-Type-Options, Referrer-Policy, Permissions-Policy. |
 | `marketing-site/_redirects` | `/index.html` → `/`, trailing-slash normalization, and a couple of friendly aliases (`/providers` etc. already resolve since files are at that path; mostly future-proofing). |

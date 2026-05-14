@@ -70,7 +70,7 @@ The widget renders `answer` as text nodes (never `innerHTML`), shows `citations`
 - `model`: `env.ASSISTANT_MODEL || "claude-sonnet-4-6"`.
 - `max_tokens: 1024`, `temperature: 0.2`.
 - `system`: instructions + the JSON knowledge base + today's date (so the model can say whether a dated rule is currently in effect).
-- `messages`: `[ { role:"user", content: <question> }, { role:"assistant", content:"{" } ]` — the assistant turn is prefilled with `{` to force a JSON object; the Function prepends `{` when parsing and tolerates trailing prose.
+- `messages`: `[ { role:"user", content: <question> } ]` — single user turn, no assistant-message prefill. (We initially used the `{`-prefill trick to force JSON output, but Sonnet 4.6 returns `invalid_request_error: "This model does not support assistant message prefill"`. The system prompt instructs JSON-only output and `parseModelJSON()` extracts the first `{` … last `}` block from any prose the model emits around it, so the Function works on any model regardless of prefill support.)
 
 ---
 

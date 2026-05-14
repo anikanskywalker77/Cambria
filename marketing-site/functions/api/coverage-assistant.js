@@ -231,9 +231,12 @@ export async function onRequestPost({ request, env }) {
     temperature: 0.2,
     system: systemPrompt(todayISO),
     messages: [
-      { role: "user", content: question },
-      { role: "assistant", content: "{" } // prefill to force a JSON object
+      { role: "user", content: question }
     ]
+    // Note: no assistant-message prefill. Some current models (Sonnet 4.6) reject
+    // it ("This model does not support assistant message prefill"). The system
+    // prompt instructs JSON-only output and parseModelJSON() is tolerant of any
+    // stray prose around the JSON object.
   };
 
   let apiRes;
@@ -262,8 +265,8 @@ export async function onRequestPost({ request, env }) {
   const raw = Array.isArray(data && data.content)
     ? data.content.filter((b) => b && b.type === "text").map((b) => b.text).join("")
     : "";
-  // We prefilled with "{", so the model's continuation completes that object.
-  const parsed = parseModelJSON("{" + raw);
+  // No prefill — parseModelJSON tolerates stray prose around the JSON object.
+  const parsed = parseModelJSON(raw);
 
   if (parsed && parsed.refused) {
     return json({ refused: true, message: typeof parsed.message === "string" && parsed.message.trim()
