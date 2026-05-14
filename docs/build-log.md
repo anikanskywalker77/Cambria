@@ -4,6 +4,22 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 (late, 2) — Logo on the SWO PDFs + About-page copy fix
+
+Two unrelated polish items in one push:
+
+**1. Peterson logo added to both generated SWO PDFs.** Both `swo-bone-stimulator-e0748.pdf` and `swo-surgical-dressings.pdf` now carry the navy/teal "Peterson Medical / EQUIPMENT" lockup at the top-left in a letterhead arrangement: logo on the left, Phone + Fax stacked on the right, then the form-tracking line (Total Pages / Patient Number) on a separate line, then the title. Visually: the two forms now look like real Peterson letterhead instead of generic black-and-white documents. The vendor-supplied spinal-bracing form (`swo-spinal-bracing.pdf`) is unchanged for now since we don't own its source — rebuilding it with the same script-based approach is a follow-up.
+
+- New shared helper: [`tools/peterson_logo.py`](../tools/peterson_logo.py). Loads `marketing-site/assets/img/logo-primary.svg` via `svglib` and renders it at the requested point size into any ReportLab canvas. Both build scripts import it. Includes a smoke-test entry point (`python tools/peterson_logo.py` writes `_logo-smoketest.pdf` for visual verification).
+- `svglib` added to the build-time deps. Install with `pip install svglib` (alongside `reportlab` and `pypdf`).
+- Header layout reflowed in both build scripts: logo (height 34 pt) top-left; right-aligned `Phone:` and `Fax:` lines top-right; then `Total Pages Sent: ___` (left) and `Patient Number: ___` (right) on their own line below; then the centered title. First attempt collided the form-tracking line with the title — fixed by bumping the y-gap from 16 pt to 28 pt. Both PDFs still single page, sizes within ~1 KB of pre-logo (the SVG render is mostly vector, no big asset embed).
+
+**2. About-page "Privacy first" card rewritten** (per Josh's note). The previous wording — *"Patient information is handled only through secure channels — never email forms or this website — and is retained and protected accordingly"* — contradicted the actual workflow (every product page tells providers to email completed SWOs to `rx@`, and we just wired the contact-form pipeline through email-via-Resend). It also read as performative rather than informative. New copy describes what's actually true: *"We operate under HIPAA's Security and Privacy Rule. Orders and supporting documentation that come through our intake — fax, email, or phone — are handled accordingly and retained for ten years, above the seven-year CMS minimum for DMEPOS suppliers."* Same card style, same icon, same length-feel, but no false absolutes and the 10-year retention (a real differentiator) is name-checked.
+
+Both changes verified live on `petersonmedicalequipment.com` after deploy. CDN cache caveat applies to the PDFs (~1-hour TTL); the About page is HTML so it refreshes faster.
+
+---
+
 ## 2026-05-14 (late) — Rebuilt the E0748 form to fix the missing patient-DOB field
 
 Josh reported that the patient Date-of-Birth field on the bone-stimulator SWO PDF wasn't fillable. Inspection confirmed: the vendor-supplied `swo-bone-stimulator-e0748.pdf` had 58 AcroForm fields total but **no `patient_dob` field** — the "DOB:" label on the patient row was just printed text with no input behind it. Same gap probably exists on a couple of other "Label:" rows on that form (the patient address rows, surgical-info date rows, etc. were also visually present but had no fillable backing fields).

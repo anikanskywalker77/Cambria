@@ -16,10 +16,14 @@ This script is the source of truth for the form. To regenerate:
 The output PDF should never contain PHI — it is a blank template downloaded
 publicly from petersonmedicalequipment.com.
 """
+import sys
 from pathlib import Path
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.colors import black, white, HexColor
+
+sys.path.insert(0, str(Path(__file__).parent))
+from peterson_logo import draw_logo
 
 OUT = Path(__file__).parent.parent / "marketing-site" / "assets" / "forms" / "swo-bone-stimulator-e0748.pdf"
 
@@ -98,13 +102,20 @@ def build():
 
     form = c.acroForm
 
-    # -------- Top strip ----------
+    # -------- Letterhead: logo left, phone/fax right ----------
     y = PAGE_H - MARGIN
+    LOGO_H = 34
+    draw_logo(c, LEFT, y - LOGO_H, height_pt=LOGO_H)
+    c.setFont("Helvetica", 9)
+    c.drawRightString(RIGHT, y - 11, "Phone: (509) 783-7501")
+    c.drawRightString(RIGHT, y - 24, "Fax: 1-509-980-7062")
+    y -= LOGO_H + 4
+
+    # -------- Form-tracking line ----------
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(LEFT, y - 9, "Fax: 1-509-980-7062")
-    c.drawString(LEFT, y - 22, "Total Pages Sent: ______")
+    c.drawString(LEFT, y - 9, "Total Pages Sent: ______")
     c.drawRightString(RIGHT, y - 9, "Patient Number: ______")
-    y -= 36
+    y -= 28
 
     # -------- Title ----------
     c.setFont("Helvetica-Bold", 12)
