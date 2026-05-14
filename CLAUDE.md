@@ -109,7 +109,7 @@ Reference: [`docs/marketing-site.md`](docs/marketing-site.md) and the CSS design
 
 ## 5. Architecture
 
-Full reference: `docs/provider-portal-spec.md` and `docs/hosting-stack-recommendation.md` (to be authored when the portal phase begins).
+Full reference: [`docs/provider-portal-spec.md`](docs/provider-portal-spec.md) (drafted 2026-05-14 — covers roles, sign-up + identity verification, the order lifecycle / status engine, the SWO wizards, the Excel roster upload + Agent SDK parser, the signing ceremony, the atomic three-way write on signature, the audit log + hash chain, the architecture, the phased build plan, and the seven open decisions). `docs/hosting-stack-recommendation.md` is still to be authored when vendor selection moves into procurement.
 
 ### 5.1 Marketing site — AS BUILT (2026-05-12)
 - **Implementation:** Hand-built static site (semantic HTML5 + a single CSS design-token system + minimal vanilla JS). No build step, no framework. Rationale: Node.js was not installed on the dev machine, "least friction" was the explicit goal, and a 9-page marketing site does not need a framework. Migration to Next.js can be revisited when the portal phase brings Node into the toolchain.
@@ -199,7 +199,7 @@ Validation rules: MBI format check, state ∈ {WA, OR}, F2F date within 6 months
 - Plausible analytics snippet
 - Real photography / headshots (currently using brand illustration + placeholders)
 - Next.js portal codebase + everything in §5.2
-- `docs/provider-portal-spec.md`, `docs/hosting-stack-recommendation.md`, `docs/next-steps-action-items.md`
+- ~~`docs/provider-portal-spec.md`~~ ✅ drafted 2026-05-14, `docs/hosting-stack-recommendation.md`, `docs/next-steps-action-items.md`
 - HIPAA risk analysis, Notice of Privacy Practices, workforce training, cyber insurance, third-party pen test
 
 ### 7.3 Open decisions (block portal build start — NOT the marketing site)
@@ -224,7 +224,7 @@ cambria/
 │  ├─ build-log.md            ← append-only build journal
 │  ├─ marketing-site.md       ← marketing-site design/IA/deploy doc
 │  ├─ ai-coverage-assistant.md← AI feature design doc
-│  ├─ provider-portal-spec.md ← (future)
+│  ├─ provider-portal-spec.md ← drafted 2026-05-14
 │  └─ hosting-stack-recommendation.md ← (future)
 ├─ marketing-site/            ← hand-built static site (deploys to Cloudflare Pages)
 │  ├─ index.html · about.html · providers.html · patients.html · insurance.html · contact.html
@@ -313,7 +313,7 @@ These live in Peterson's Google Workspace, not the repo:
 - Marketing site — design / IA / deploy: [`docs/marketing-site.md`](docs/marketing-site.md)
 - AI coverage assistant — design: [`docs/ai-coverage-assistant.md`](docs/ai-coverage-assistant.md)
 - Build journal: [`docs/build-log.md`](docs/build-log.md)
-- Provider portal — full functional + technical spec: `docs/provider-portal-spec.md` *(to be authored)*
+- Provider portal — full functional + technical spec: [`docs/provider-portal-spec.md`](docs/provider-portal-spec.md) ✅ drafted 2026-05-14
 - Hosting + stack — vendor decisions, BAAs, launch plan: `docs/hosting-stack-recommendation.md` *(to be authored)*
 - Original Cambria context doc (Google Drive): file ID `1GZa0zHyVsEcy65qkamueQXle48X3g9Ca`
 

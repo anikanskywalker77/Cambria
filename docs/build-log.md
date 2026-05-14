@@ -4,6 +4,18 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 (evening) — Provider portal spec drafted; secrets-rotation tracker added
+
+Two design / governance docs added; no code changes.
+
+- **[`docs/provider-portal-spec.md`](provider-portal-spec.md)** — the spec the context doc said was "to be authored." Covers: roles & accounts (the six-role Cambria model), the practitioner sign-up + identity-verification flow (NPPES + OIG LEIE + state license), the order lifecycle / status engine (with the L0651 effective-date branching rule encoded), the per-product-line SWO wizards (E0748 / L-line / A-line), the Excel roster upload + Agent SDK parser (the marquee differentiator), the signing ceremony (per-order signatures with re-auth gating), the atomic three-way write on signature (Postmark + Drive + Postgres with saga-pattern rollback), the audit log (append-only, SHA-256 hash chain, daily object-lock snapshots, 10-yr retention), the architecture, a phased build plan (Phase 1 = E0748 vertical → Phase 2 = all product lines + roster + stacked signing → Phase 3 = polish), an operational pre-build checklist (BAAs, risk analysis, NPP, training, insurance, pen test), and the seven open decisions (D1–D7) with recommended picks. ~6.5K words.
+- **[`docs/secrets-rotation.md`](secrets-rotation.md)** — added earlier today. Inventories the three live secrets with rotation procedures + cadence (90 days default, immediately if exposed). All three are flagged as exposed-in-chat with a 2026-05-21 deadline. Reminder: scheduled-skill auto-reminder failed to set up (remote service issue); falling back to a manual calendar reminder.
+- **CLAUDE.md** updated in §5.2, §7.1 main list, §7.2 punch list, §8 repo structure, and §13 spec pointers — every reference to provider-portal-spec.md as "future / to be authored" replaced with a link to the now-existing file.
+- **No D5 (build vs buy) decision yet.** The spec recommends Claude-built for Phase 1 with Josh evaluating a vertical SaaS in parallel and re-deciding at the end of Phase 1 with real cycle-time data in hand. That's the one strategic decision worth weighing carefully before any portal code is written.
+- **Open questions surfaced (in §14 of the spec):** confirm NSC enrollment status (D1, the only true blocker), confirm Phase 1 product line (recommend E0748), green-light on build-approach (D5), pilot clinic list (D7), portal subdomain branding decision (`portal.` vs. `cambria.`).
+
+---
+
 ## 2026-05-14 (later) — Contact form wired to email (Resend)
 
 `functions/api/contact.js` was a stub until today — accepted submissions, returned success, but didn't actually deliver. Now wired end-to-end via Resend.
