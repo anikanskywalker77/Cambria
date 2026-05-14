@@ -4,6 +4,18 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 (evening, 3) — Surgical dressings SWO PDF generated + wired
+
+The third order form (the one Peterson didn't have a vendor PDF for) is now built and live, completing the order-form set on the marketing site.
+
+- **Built `marketing-site/assets/forms/swo-surgical-dressings.pdf`** — single-page US Letter, 63 KB, 79 fillable AcroForm fields. Visually matches the two reference forms (E0748 and spinal-bracing) — same header strip, same Patient/Provider table, same Insurance section, same attestation paragraph, same footer. Adds a **Wound Information** section that the other two forms don't need: wound location, wound type (surgical / pressure ulcer with stage 1–4 / diabetic / venous / arterial / other), L×W×D dimensions, drainage (none/light/moderate/heavy), date of onset, length-of-need (months). Item-prescribed table covers the full Vitalé line (`A6010`, `A6021`, `A6023`, `A6203` ×3, `A6204` ×2) plus an "Other" row for alginate / foam / hydrogel / non-Vitalé items sourced on request. Each item row has its own checkbox + Qty + per (frequency) fields. Carries the practitioner attestation language verbatim and the LCD reference (`L33831`).
+- **Built with ReportLab** (Python 3.14 + reportlab 4.5.1 + pypdf 6.11.0). The build script lives at **`tools/build-swo-dressings.py`** — checked into the repo as the source of truth for this form. To regenerate: `pip install reportlab pypdf && python tools/build-swo-dressings.py`. The script writes directly into `marketing-site/assets/forms/`. Originally placed inside `assets/forms/` itself but moved out so Cloudflare Pages doesn't serve the Python script as a public download.
+- **Wired downloads** in three places: replaced the "request the form" mailto card on `/products/surgical-dressings` with a real "Download SWO (PDF)" CTA matching the other two product pages; replaced the dressing entry on `/providers` Order forms list with a real download link. All three SWO PDFs now download from `/assets/forms/`.
+- **Verified live:** all three PDFs return `200 OK` with `Content-Type: application/pdf` from `petersonmedicalequipment.com`. Confirmed the build script is NOT exposed (404-fallback to home page).
+- **Note for the dressings form:** the two vendor-supplied PDFs (E0748 and spinal-bracing) are non-editable — if Peterson wants the same Wound-Information-style enhancements there, the cleanest path is to re-build them with ReportLab too, then store the source scripts in `tools/`.
+
+---
+
 ## 2026-05-14 (evening, 2) — Map embed wired on the contact page
 
 Replaced the placeholder gradient block on `/contact` with a real Google Maps iframe pointing at 4415 W Clearwater Ave, Suite 11, Kennewick WA 99336. No API key needed (using the legacy `maps.google.com/maps?q=…&output=embed` form, which still works fine for embedded directions). Added `frame-src https://www.google.com https://maps.google.com` to the CSP so the iframe isn't blocked. iframe carries `loading="lazy"`, `referrerpolicy="no-referrer-when-downgrade"`, `allowfullscreen`, and a descriptive `title=` for screen readers. Pushed to GitHub + redeployed via wrangler — verified live on `https://petersonmedicalequipment.com/contact`.
