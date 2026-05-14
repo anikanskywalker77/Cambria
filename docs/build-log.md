@@ -4,6 +4,14 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 (evening, 2) — Map embed wired on the contact page
+
+Replaced the placeholder gradient block on `/contact` with a real Google Maps iframe pointing at 4415 W Clearwater Ave, Suite 11, Kennewick WA 99336. No API key needed (using the legacy `maps.google.com/maps?q=…&output=embed` form, which still works fine for embedded directions). Added `frame-src https://www.google.com https://maps.google.com` to the CSP so the iframe isn't blocked. iframe carries `loading="lazy"`, `referrerpolicy="no-referrer-when-downgrade"`, `allowfullscreen`, and a descriptive `title=` for screen readers. Pushed to GitHub + redeployed via wrangler — verified live on `https://petersonmedicalequipment.com/contact`.
+
+Side note: Cloudflare Pages 308-redirects `/contact.html` → `/contact` automatically (clean URLs). Our internal links still use `.html` — works fine via the redirect, but a future polish could drop the extensions to skip the hop. Not urgent.
+
+---
+
 ## 2026-05-14 (evening) — Provider portal spec drafted; secrets-rotation tracker added
 
 Two design / governance docs added; no code changes.
