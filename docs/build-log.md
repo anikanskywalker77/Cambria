@@ -4,6 +4,21 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 (late) — Rebuilt the E0748 form to fix the missing patient-DOB field
+
+Josh reported that the patient Date-of-Birth field on the bone-stimulator SWO PDF wasn't fillable. Inspection confirmed: the vendor-supplied `swo-bone-stimulator-e0748.pdf` had 58 AcroForm fields total but **no `patient_dob` field** — the "DOB:" label on the patient row was just printed text with no input behind it. Same gap probably exists on a couple of other "Label:" rows on that form (the patient address rows, surgical-info date rows, etc. were also visually present but had no fillable backing fields).
+
+- **Built a replacement** with ReportLab. New file replaces the old at the same path — `marketing-site/assets/forms/swo-bone-stimulator-e0748.pdf` — so every existing link on the site continues to work, no HTML reroutes needed. 45 KB (down from 124 KB), 56 fillable form fields (was 58, but the vendor count was inflated by hidden form-state fields; mine has actual labeled inputs for every field on the form including the previously-missing ones).
+- **All critical fields verified present:** `patient_name`, `patient_phone`, **`patient_dob`** ←, `patient_address`, `patient_city_state_zip`, `practice_name`, `practitioner_npi`, `practitioner_phone`, `practitioner_address`, `practitioner_city_state_zip`, `surgery_date`, `prior_surgery_date`, `previous_fusion_date`, `failed_fusions`, `fusion_levels`, `insured_name`, `insured_dob`, `insurance_company`, `policy_number`, `group_number`, `prescriber_signature`, `signature_date`, `prescriber_printed_name`. Plus checkboxes for the 5 device options, primary/repeat/multi-level fusion, attach-secondary-insurance, and the 12 medical-history conditions.
+- **Layout matches the original vendor form:** same header strip, same Patient/Provider table structure with DOB+Gender row, same five device-checkbox rows + Estimated Length, same Surgical Information section, same Medical History 4×3 grid, same Insurance Information section, same attestation paragraph, same signature block, same footer. The visible difference is that every labeled blank now has a clean underline indicating where to type.
+- **Build script:** `tools/build-swo-bone-stimulator.py` — checked into the repo as source of truth. Regenerate via `python tools/build-swo-bone-stimulator.py`.
+- **CDN cache note:** the file's Cache-Control is `public, max-age=3600` (per the global `/assets/*` rule in `_headers`), so previously-cached copies at Cloudflare's edges (and in browsers that already downloaded it) will continue serving the old file for up to an hour. Verified via cache-busting query string that the origin is serving the new version. For an immediate purge, run `wrangler pages cache purge --project-name cambria` (not done — partner traffic is light, the natural cache expiry is fine).
+- **Updated page text** on `/products/bone-stimulators` and `/providers` Order forms card: "PDF · 124 KB" → "PDF · 45 KB" since the new file is smaller; the bone-stim page now also explicitly says "every field on this form is fillable in any PDF reader" since that's the whole reason this rebuild happened.
+- **Vendor's original PDF** is preserved in git history (commit `cf474ea`) — `git show cf474ea:marketing-site/assets/forms/swo-bone-stimulator-e0748.pdf > original.pdf` if it's ever needed.
+- **Implication for the spinal-bracing form:** same vendor — likely has similar "label without field" gaps. Spot-check showed it does have a `DOB` field, but the field naming is inconsistent and rect coords are missing (vs my forms which have clean rect coords). A future rebuild with the same script-based approach would tighten consistency across all three forms. Not urgent — current bracing form is functional.
+
+---
+
 ## 2026-05-14 (evening, 3) — Surgical dressings SWO PDF generated + wired
 
 The third order form (the one Peterson didn't have a vendor PDF for) is now built and live, completing the order-form set on the marketing site.
