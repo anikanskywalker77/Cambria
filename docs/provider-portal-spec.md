@@ -43,10 +43,11 @@ The "Cambria" role model — six roles, role-based access enforced at the route,
 
 | Role | Can sign? | Patient PHI access | Admin actions |
 |---|---|---|---|
-| **DME Admin** (Josh) | No | All patients across all practices | Provision practitioner accounts, impersonate (logged), invite/revoke staff, see audit log, run reports. |
+| **DME Admin** (Josh) | No | All patients across all practices | Provision practitioner accounts, impersonate (logged), invite/revoke staff, see audit log, run reports, manage sales reps and commission rules, run payout batches. |
 | **DME Staff** (Peterson intake/fitters) | No | All patients in the order queue | Update fulfillment status, attach supporting docs, message a practice. |
 | **Physician** | **Yes** | All patients in their practice + any patient they've personally signed for | Sign SWOs (only role that can). Cannot delete or alter a signed order. |
 | **Office Staff** | No | All patients in their practice | Build draft orders, upload roster, attach F2F notes, send drafts to physician for signature. |
+| **Sales Rep** | No | **None — zero PHI access** | See own assigned clinics' order count and revenue, own commission ledger, own payout history. Edit own profile (W-9, ACH). Sees the rep portal at `/rep`, never reaches `/admin` or any provider-facing route. See §17. |
 | **Patient** | n/a | Their own record only | Phase 2 only — see status, download patient-facing instructions. |
 | **Auditor** | No | Limited to a named records-request scope (date range, patient IDs, or both) | Read-only. Time-boxed; auto-revokes 30 days after issue (or earlier on request close). |
 
@@ -466,11 +467,11 @@ When a records request comes in (RAC, MAC, OIG), the DME Admin creates an Audito
 
 | Table | Notes |
 |---|---|
-| `users` | All accounts (DME admin/staff, physician, office staff, auditor). Linked to one or more `practices`. |
+| `users` | All accounts (DME admin/staff, physician, office staff, sales rep, auditor). Linked to one or more `practices` (or to a `sales_rep` row for reps). |
 | `practices` | A clinic. Has a billing entity, address, NPIs (group + individual). |
 | `practice_members` | Many-to-many users ↔ practices with role (physician / office_staff). |
-| `patients` | PHI-bearing. RLS: a row is visible to a user iff the user belongs to a practice that has at least one order for the patient. |
-| `orders` | One per intended SWO. Status, signed_at, signed_pdf_url, signer_user_id, prepared_by_user_id, hcpcs (for single-line orders), in_pa_review_started_at, fulfillment_started_at, fulfilled_at. |
+| `patients` | PHI-bearing. RLS: a row is visible to a user iff the user belongs to a practice that has at least one order for the patient. **Never visible to sales reps.** |
+| `orders` | One per intended SWO. Status, signed_at, signed_pdf_url, signer_user_id, prepared_by_user_id, hcpcs, in_pa_review_started_at, fulfillment_started_at, fulfilled_at. **Plus** `rep_id` (snapshot of the assigned rep at signing time, for commission attribution), `expected_revenue_cents` (from price book), `actual_revenue_cents` (from QBO when payment posts). |
 | `order_items` | For multi-line orders (e.g. multiple dressing sizes). |
 | `supporting_docs` | F2F notes, op notes, imaging — stored in GCS, referenced here. |
 | `audit_log` | Append-only, hash-chained. |
@@ -478,6 +479,14 @@ When a records request comes in (RAC, MAC, OIG), the DME Admin creates an Audito
 | `roster_rows` | Per-row parse output (status / problems / linked draft order id if created). |
 | `auditor_scopes` | Records request id, date range, patient/order list, expires_at. |
 | `auditor_grants` | Many-to-many user_id ↔ scope_id with revoked_at. |
+| `price_book` | (Phase 3) HCPCS → expected revenue per unit, effective_dates. Drives `orders.expected_revenue_cents` for commission accrual. |
+| `sales_reps` | (Phase 3) Rep records: name, email, status, tax info refs (W-9 doc id), payment refs (ACH last4), QBO vendor id. |
+| `rep_assignments` | (Phase 3) Time-boxed mapping: rep_id, practice_id, start_at, end_at (NULL = current). One practice can have a history of reps; only one is active at any time. |
+| `commission_rules` | (Phase 3) (rep_id, product_line, effective_dates) → rate type (percent of net / per-order flat / tiered) and parameters. |
+| `commissions` | (Phase 3) Ledger entry per signed order per applicable rule: order_id, rep_id, rule_id, amount_cents, status (accrued / earned / paid / voided), earned_at, paid_at, payout_id. |
+| `payouts` | (Phase 3) Batch-level: rep_id, period_start, period_end, total_cents, paid_at, qbo_bill_id (when integration is wired). |
+
+**Non-PHI projection views** (Phase 3) — a set of read-only Postgres views that join `orders` ↔ `commissions` and project ONLY non-PHI columns. The Sales Rep role's API tokens are scoped to these views and have no SELECT grant on `patients` or PHI columns of `orders`. See §17.1.
 
 ### 10.2 Conventions (also in CLAUDE.md §11)
 
@@ -492,9 +501,9 @@ When a records request comes in (RAC, MAC, OIG), the DME Admin creates an Audito
 
 ## 11. Phase plan
 
-### Phase 1 — "kill the fax for one product line" (target: 8 weeks from build start)
+### Phase 1 — "kill the fax for one product line" (target: 8 weeks from build start; aligned with the August 2026 moratorium expiry)
 
-Smallest end-to-end vertical that proves the model. Pick the simplest product line — **bone growth stimulators (E0748)** — and ship the full lifecycle.
+Smallest end-to-end vertical that proves the model. Pick the simplest product line — **bone growth stimulators (E0748)** — and ship the full lifecycle. **Build proceeds despite no confirmed PTAN — moratorium expires August 2026, and Peterson can complete 855S enrollment in that window.**
 
 In scope:
 - Auth (Keycloak), practitioner sign-up with NPPES + LEIE + state license verification.
@@ -504,6 +513,7 @@ In scope:
 - Atomic three-way write (Postmark email + Drive archive + Postgres status).
 - Audit log + hash chain.
 - DME Admin + DME Staff + Physician + Office Staff roles.
+- **Phase 1 admin portal baseline** (§15.2) — order queue, practice list, user management, audit-log search, records-request flow, compliance dashboard. Same codebase as the provider portal, gated by role at `/admin`.
 - Pilot with 1–2 friendly clinics.
 
 Explicitly out of scope for Phase 1:
@@ -512,7 +522,8 @@ Explicitly out of scope for Phase 1:
 - Roster upload + Agent SDK parser.
 - Stacked-signing ceremony.
 - Patient role.
-- Auditor role.
+- Auditor role (the records-request flow is admin-only in Phase 1).
+- Sales rep system (no rep accounts, no commissions).
 
 ### Phase 2 — "all three product lines + the differentiator" (~ +6 weeks)
 
@@ -521,15 +532,19 @@ Explicitly out of scope for Phase 1:
 - A6010–A6204 multi-line dressing wizard.
 - **Excel roster upload + Agent SDK parser.**
 - **Stacked-signing ceremony.**
+- Auditor role + records-request flow (the time-boxed external-auditor experience).
+- Admin portal Phase 2 additions (§15.3) — analytics, bulk operations, health dashboards, configuration toggles. Sales rep management UI added but commission engine still off.
 - Pilot expanded to 5 clinics.
 
-### Phase 3 — "post-pilot polish" (~ +4 weeks)
+### Phase 3 — "sales-rep system + accounting integration + polish" (~ +6 weeks)
 
-- Auditor role + records-request flow.
-- Patient role (status visibility, instructions).
-- Reporting (cycle-time, denial rate, top referrers).
-- Bulk patient document attachment (e.g. drag-and-drop op notes).
-- Fulfillment tracking (DME staff updates fitting/delivery/returns).
+- **Sales rep system** (§16) — `sales_reps`, `rep_assignments`, `commission_rules`, `commissions`, `payouts` tables; commission accrual on order signing; commission earning on QBO payment-posted; payout batch flow.
+- **Sales Rep portal** (§17) — `/rep` route with non-PHI projections, dashboard, clinic list, commission ledger, payout history, profile management.
+- **QBO integration** (§17.5) — read invoice + payment status to drive `accrued → earned`; write payout bills to drive `earned → paid`. Uses the existing QBO MCP server.
+- **Patient role** (status visibility, instructions).
+- **Reporting depth** — cycle-time, denial rate, top referrers, by-rep revenue and commission breakdowns.
+- **Bulk patient document attachment** (drag-and-drop op notes).
+- **Fulfillment tracking** (DME staff updates fitting/delivery/returns).
 
 ### Phase 4 — "scale" (when volume justifies)
 
@@ -565,31 +580,269 @@ These were flagged in `CLAUDE.md` §7.3. Revisit each before that piece is built
 
 | # | Decision | Recommended | Why | Trade-off |
 |---|---|---|---|---|
-| **D1** | NSC 855S enrollment status (does Peterson's enrollment under EIN `39-5095641` predate the 2026-02-27 moratorium?) | Josh confirms via NSC — call before any code work assumes "Peterson can take new orders." | Without confirmed enrollment, no code in the world helps — there's no entity to bill from. | If pre-moratorium, no impact. If post-moratorium, this is a separate regulatory thread. |
-| **D2** | Hosting: WP Engine vs. Kinsta (was relevant when WordPress was the marketing path) | **N/A** for the portal — the portal is Cloud Run, not WordPress. Marketing already shipped on Cloudflare Pages. | Decision moot. | — |
+| **D1** | NSC 855S enrollment status under the 2026-02-27 moratorium | **Resolved 2026-05-14:** build proceeds anyway. Moratorium expires August 2026 (~3 months out) and Phase 1 timeline is ~8 weeks; Peterson can complete 855S enrollment in the post-moratorium window while pilot orders are running on a non-billable basis (or transferred to a contracted billing partner if needed during the gap). | Aligns build runway with regulatory runway; nothing in the code depends on PTAN status until orders are actually billed. | If 855S enrollment hits an unforeseen snag post-moratorium, Phase 1 portal usage stalls. Mitigation: track NSC application progress in the admin compliance dashboard. |
+| **D2** | ~~Hosting: WP Engine vs. Kinsta~~ | **N/A** — moot since marketing shipped on Cloudflare Pages and the portal targets Cloud Run. | — | — |
 | **D3** | Identity: Keycloak self-host vs. Auth0 (B2B + HIPAA add-on) | **Keycloak**, on Cloud Run | No vendor lock-in, no per-user fee at scale, full control of token lifecycles, no third-party processor of PHI. | Keycloak ops burden — patching, upgrades. Mitigated by running it as a managed Cloud Run container with infrequent redeploys. |
 | **D4** | E-sign: DocuSeal self-host vs. SignWell hosted | **DocuSeal**, sidecar container | Same logic as Keycloak — no third-party processor, no extra BAA, MIT license. | Slightly more setup; DocuSeal's UI is functional but less polished than DocuSign or SignWell. Acceptable for B2B medical. |
-| **D5** | Build approach: Claude/AI agent + MSP retainer / 1099 contractor / vertical SaaS (Brightree, Bonafide, Nikohealth) | **Claude-built (continued from here) for Phase 1**, with Josh evaluating one of the SaaS options in parallel. Decide at end of Phase 1 whether to keep building or migrate. | Phase 1 is the right size to build custom — it's fast, learnings are direct, and it's the differentiator. After Phase 1 you have real cycle-time data to compare against vendor pricing. | A vertical SaaS would skip phases 2–3 of build. Trade-off: per-order or per-prescriber recurring fees, and the roster-upload differentiator may not exist there. |
-| **D6** | Phase 1 scope: marketing + portal in parallel vs. marketing-first | **Resolved 2026-05-12**: marketing-first. Marketing shipped. Portal Phase 1 starts now. | — | — |
+| **D5** | Build approach: Claude-built / 1099 contractor / vertical SaaS (Brightree, Bonafide, Nikohealth) | **Resolved 2026-05-14:** Claude-built for Phase 1. Decision deferred for Phase 2+ — re-evaluate at Phase 1 retrospective with real cycle-time data. See [`docs/build-vs-buy-portal.md`](build-vs-buy-portal.md) for the steel-manned SaaS comparison. | Phase 1 is bounded (E0748 vertical) and the differentiator (Excel roster + AI parser + stacked signing) is unique to Peterson — not in any vertical SaaS. After Phase 1, you have real numbers to negotiate vendor pricing against. | If Phase 1 reveals significant back-office gaps (eligibility verification, ERA reconciliation, payer-specific edge cases) we'd rather not build, migration to Brightree/Bonafide for the back-office is still on the table — keeping the provider-facing portal as a thin custom layer on top of their billing engine. |
+| **D6** | ~~Phase 1 scope: marketing + portal parallel vs. marketing-first~~ | **Resolved 2026-05-12**: marketing-first. Marketing shipped. Portal Phase 1 starts now. | — | — |
 | **D7** | Pilot provider list: which 5 clinics | Josh names them. Recommend: 2 spinal-surgery practices already sending high E0748 volume, 2 family-practice / pain-management clinics (broader test of the workflow), 1 friendly-but-skeptical to stress the UX. | Mix of high-volume + diverse-workflow gives the most learning per pilot week. | A homogeneous pilot ships fewer surprises but produces less general feedback. |
+| **D8** | Commission rate model for the sales-rep system (§16.3) — percent of net revenue / per-order flat fee / tiered, and the actual rate for each product line | Josh defines. Reasonable starting defaults for evaluation: **8% of net collected** on E0748 (high-margin), **6% of net** on the L-line, **5% of net** on dressings (low-margin, recurring). Tiered structures available if you want to drive specific growth behaviour. | Setting any rate at all unblocks the Phase 3 build — you can adjust the rates later without code changes (the engine is rule-driven). | Flat per-order fees are easier to forecast for reps; percentage-of-net aligns rep incentive with what Peterson actually collects. Most DME companies use percentage-of-net. |
+| **D9** | Subdomain branding for the portal | **Resolved 2026-05-14:** `portal.petersonmedicalequipment.com`. Reps land at `portal.petersonmedicalequipment.com/rep`, admin at `/admin`. "Cambria" stays as internal codename. | — | — |
 
 ---
 
 ## 14. Open questions for Josh (in priority order)
 
-1. **D1 (NSC enrollment)** — please call NSC and confirm Peterson's 855S status. This is the only one of the seven that genuinely blocks build-start; everything else can be parametrically planned.
+1. ~~**D1 (NSC enrollment)**~~ → resolved 2026-05-14: build proceeds; moratorium expires August 2026; aligned with Phase 1 timeline.
 2. **Phase 1 product line** — confirm bone stim (E0748) as the first wizard. Alternative is dressings (A-line) — also no PA, no WOPD, but multi-line orders add UI complexity. Recommend E0748.
-3. **Build approach (D5)** — say go on Claude-built for Phase 1, or pause to evaluate a vertical SaaS first. (Recommend: build Phase 1, evaluate at the end with real data in hand.)
-4. **Pilot clinic list (D7)** — when you have the names, drop them in `docs/pilot-clinics.md` (a file we'll create then).
-5. **Branding for the portal subdomain** — `portal.petersonmedicalequipment.com` or do you want it branded `cambria` to providers (e.g. `cambria.petersonmedicalequipment.com` or even `cambria.health`)? My read: keep it on `portal.petersonmedicalequipment.com` for v1 — providers know Peterson, "Cambria" is internal branding for now.
+3. ~~**Build approach (D5)**~~ → resolved 2026-05-14: Claude-built for Phase 1; revisit at Phase 1 retrospective. See [`docs/build-vs-buy-portal.md`](build-vs-buy-portal.md) for the steel-manned SaaS argument.
+4. **Pilot clinic list (D7)** — when you have the names, drop them in `docs/pilot-clinics.md` (a file we'll create then). Until pilot starts, this isn't blocking.
+5. ~~**Subdomain branding**~~ → resolved 2026-05-14: `portal.petersonmedicalequipment.com`.
+6. **D8 — commission rate model (NEW)** — for each product line, what does Peterson want to pay reps? Options: percent of net collected (industry default), per-order flat fee, or tiered. The engine handles all three; you set the actual numbers. Reasonable defaults to evaluate: 8% E0748 / 6% L-line / 5% dressings. We need an answer before Phase 3 (sales rep system) starts; Phases 1 and 2 don't depend on this.
+7. **Demo Brightree, Bonafide, and Nikohealth in parallel with the Phase 1 build** — book a 60-minute demo with each, free, ask the questions in [`docs/build-vs-buy-portal.md`](build-vs-buy-portal.md) §5. The Phase 1 retrospective decision is much sharper if you've seen what they actually offer at what price for Peterson's scale.
+8. **NSC 855S status (operational, not blocking the build)** — track Peterson's 855S enrollment through the moratorium-expiry window in the admin compliance dashboard once that's live (Phase 1, §15.2). Need a billing partner contingency plan if there's any uncertainty about the post-August enrollment hitting clean.
 
 ---
 
-## 15. Change log for this file
+## 15. Admin portal (internal)
+
+A separate **admin portal** for Peterson's own staff — distinct from the provider portal. Same Next.js codebase, gated by role. Admins authenticate the same way (Keycloak + TOTP) but land on a different home and see different navigation. Lives at the same domain (`portal.petersonmedicalequipment.com`) under `/admin`, behind a hard role check.
+
+### 15.1 Who uses it
+
+| Role | Sees |
+|---|---|
+| **DME Admin** (Josh) | Everything across all practices. The "all-data" view. |
+| **DME Staff** (intake / fitter) | Order queue, fulfillment status, supporting-doc attachment, message-a-practice. No commission data, no rep data, no audit search. |
+
+External roles (physicians, office staff, sales reps, patients, auditors) **cannot reach `/admin`** — Postgres row-level security plus router-level role gates. Attempted access logs to the audit trail.
+
+### 15.2 What it does — Phase 1 baseline
+
+Even at Phase 1 (when only the E0748 wizard is live for prescribers), the admin portal needs:
+
+- **Order queue.** All orders across all practices, filterable by status (DRAFT / AWAITING_SIG / IN_PA_REVIEW / SUBMITTED / READY_TO_FULFILL / FULFILLED / DENIED), HCPCS, practice, signing physician, date range. Click an order → full detail with PDF preview, status transitions, audit log for that order.
+- **Practice list.** Every clinic with at least one user or one order. Click a practice → its members, its orders, its assigned sales rep (when §16 lands), its lifetime volume by HCPCS.
+- **User management.** Provision practitioner accounts (kicks off the §3 verification flow), invite office staff, suspend/revoke, reset MFA, see active sessions.
+- **Audit log search.** Query the append-only `audit_log` (§9) by actor, subject, action, date range. Used during real records requests and for internal investigations. Every audit-log query is itself audit-logged.
+- **Records-request flow.** Create an Auditor scope (§3.4): name the request id, select date range and patient/order list, generate the time-boxed activation link for the auditor. Track active scopes; revoke early on demand.
+- **Compliance dashboard.** A single screen with: orders awaiting PA decision (sorted by oldest first), orders with F2F documentation expiring within 30 days, signed PDFs that failed to archive (the saga-pattern compensating-rollback queue), audit-log hash-chain status (last verified at), monthly LEIE-refresh status.
+
+### 15.3 What it does — Phase 2+ additions
+
+- **Cross-cutting analytics.** Cycle-time by step (draft→sign, sign→PA-decision, PA-decision→fulfill), denial rate by HCPCS and by referring practice, top referrers by month, revenue mix by line.
+- **Sales rep management.** Provision rep accounts, assign clinics to reps, set commission rules (see §16), run payout batches (see §17.3).
+- **Commission reports.** Per-rep period summaries with drill-down to the orders behind the numbers. CSV export for accounting.
+- **Bulk operations.** Export a date-range of signed PDFs as a zip for an external audit. Export an audit-log subset for legal review. Re-run an upload-archive saga on a stuck order.
+- **Health dashboards.** API quotas (Anthropic, Postmark, NPPES), DocuSeal sidecar status, Cloud SQL connection pool, GCS object-lock snapshot freshness, Sentry error rate.
+- **Configuration.** Toggle the LEIE-refresh schedule, edit the commission-rule defaults, update the assistant model env var (without a redeploy via wrangler).
+
+### 15.4 What it deliberately does NOT do
+
+- It is not a replacement for accounting. Accounts receivable / payable, cash posting, ERA reconciliation, sales tax — all handled by QuickBooks Online (and eventually whatever billing system Peterson adopts). The admin portal **reads from** QBO via API for revenue figures (§17.5); it does not own that data.
+- It is not a payroll system. Commission *calculation* lives here; commission *payment* either lives in QBO (as bills) or in Gusto/whatever Peterson uses.
+- It is not the back-office DMEPOS billing system. If Peterson eventually adopts Brightree (see [`docs/build-vs-buy-portal.md`](build-vs-buy-portal.md)), the admin portal becomes a thin layer on top of Brightree's data, not a replacement for it.
+
+---
+
+## 16. Sales representative tracking & commission system
+
+Every clinic (practice) gets assigned to a sales rep. Reps earn commission on orders generated by their assigned clinics. This system tracks who's responsible for what, calculates what each rep is owed, and feeds payout records into accounting.
+
+### 16.1 The model
+
+```
+                     ┌──────────────┐
+                     │ sales_reps   │
+                     └──────┬───────┘
+                            │ (1)
+                            │
+                            ▼ (many)
+                     ┌──────────────────┐
+                     │ rep_assignments  │   ← time-boxed mapping
+                     │  rep_id          │   ← (rep, practice, start, end)
+                     │  practice_id     │   ← so historical orders
+                     │  start_at        │     attribute correctly even
+                     │  end_at  (null)  │     when reps change
+                     └──────┬───────────┘
+                            │
+                            ▼
+                     ┌──────────────┐
+                     │ practices    │
+                     └──────┬───────┘
+                            │
+                            ▼
+                     ┌──────────────┐
+                     │ orders       │ ──► rep_id snapshot at signing time
+                     └──────┬───────┘
+                            │
+                            ▼ (1 per signed order)
+                     ┌──────────────────┐
+                     │ commissions      │   ← ledger
+                     │  order_id        │
+                     │  rep_id          │
+                     │  rule_id         │
+                     │  amount_cents    │
+                     │  status          │   ← accrued / earned / paid / voided
+                     │  earned_at       │
+                     │  paid_at  (null) │
+                     │  payout_id (null)│
+                     └──────┬───────────┘
+                            │
+                            ▼ (many per payout batch)
+                     ┌──────────────┐
+                     │ payouts      │
+                     │  rep_id      │
+                     │  period_start│
+                     │  period_end  │
+                     │  total_cents │
+                     │  paid_at     │
+                     │  qbo_bill_id │   ← ref to the bill created in QBO
+                     └──────────────┘
+```
+
+### 16.2 Why "snapshot at signing time"
+
+When a clinic's rep changes (rep leaves, territory reassignment), historical orders should still attribute to the rep who owned the relationship when the order was signed — not the new rep. So `orders.rep_id` is captured at signature time, not derived dynamically from the current `rep_assignments`. Same reason `orders.signed_pdf_url` is stored rather than re-derived: signature events are immutable on principle.
+
+### 16.3 Commission rules
+
+Rules are defined per `(rep_id, product_line, effective_dates)` triples and resolve to one of three rate types:
+
+| Rate type | Example | When to use |
+|---|---|---|
+| **Percent of net revenue** | 8% of net collected | Default; aligns rep incentives with what Peterson actually gets paid |
+| **Per-order flat fee** | $40 per signed order | Simpler bookkeeping; suitable for low-margin lines like dressings |
+| **Tiered percent** | 6% on first $50K/quarter, 9% on next $50K, 12% above | Used to drive growth past a baseline |
+
+Rules can stack: a rep might earn 6% of net on dressings + 10% of net on bone stim + a $30/unit kicker on L0651 braces. The commissions ledger records which rule applied to each order so the calculation is auditable.
+
+### 16.4 What "earned" means — and the lifecycle
+
+A commission has a status lifecycle that follows the order's revenue lifecycle:
+
+```
+order signed
+    └──► commissions.status = 'accrued'  (potential, not yet earned)
+
+payment posted in QBO (full or partial)
+    └──► commission.status = 'earned'    (locked in, owed to rep)
+
+payout batch closed
+    └──► commission.status = 'paid'       payout_id populated
+                                          paid_at timestamp set
+                                          qbo_bill_id ref'd
+
+denial / refund / recoupment
+    └──► commission.status = 'voided'     amount written off, audit-logged
+```
+
+**Key rule:** a rep doesn't get paid commission on revenue Peterson hasn't collected. Commissions go from `accrued` to `earned` only when the underlying invoice is marked paid in QBO. This protects against paying out on orders that later get denied or returned.
+
+### 16.5 Where the data comes from
+
+- **`orders.rep_id`** — set by the portal at signature time, copied from the most recent active `rep_assignments` row for the order's practice.
+- **`orders.expected_revenue_cents`** — used for the `accrued` calculation. Comes from a Peterson-maintained price book per HCPCS (or a direct cents value if the rule uses per-order flat fees).
+- **`orders.actual_revenue_cents`** — populated when QBO confirms payment. Comes from the QBO MCP (read invoice + payment status). This is what `earned` is calculated from.
+
+### 16.6 The commission-batch run (manual, monthly)
+
+Josh (DME Admin) clicks **"Run commission batch"** in the admin portal. The system:
+
+1. Queries every `commissions` row in `earned` status with `payout_id IS NULL` for each rep.
+2. Groups by rep, sums by line, presents a per-rep summary for review.
+3. On confirm, creates a `payouts` row per rep, flips the underlying commissions to `paid`, and (if QBO integration is wired) creates a Bill in QBO under the rep's vendor record so the AP flow handles actual payment.
+4. Pushes a notification to each rep that their payout is ready to view.
+5. Audit-logs the batch.
+
+Initially the QBO bill creation is optional — Josh can skip the integration and pay reps via whatever mechanism (Bill.com, manual ACH, payroll module). The portal still tracks who got paid what.
+
+---
+
+## 17. Sales rep portal (non-PHI)
+
+A third front-end role, distinct from the provider portal and the admin portal. Reps log in to see what they've sold, what they're owed, and what they've been paid. **Patient data never reaches this portal.**
+
+### 17.1 The hard rule
+
+A sales rep's portal must surface zero PHI. That includes patient names, MBIs, dates of birth, addresses, phone numbers, diagnosis codes, clinical notes — none of it. What a rep sees per order is:
+
+- The order's HCPCS code
+- The clinic (practice) it was signed for
+- The signing physician's name and NPI (this is provider-identifying info, not patient PHI)
+- The signature date
+- The dollar amount (gross billed, net collected)
+- The commission earned for them on that order
+
+That's it. Enforced at the database query layer (a dedicated set of views that join `orders` ↔ `commissions` and project only non-PHI columns), not just at the UI. A rep's API token cannot retrieve `patients.*` or `orders.patient_id` even if the front-end is bypassed.
+
+### 17.2 What reps see
+
+- **Dashboard.** MTD and YTD: gross billed, gross collected, commission accrued (potential), commission earned (locked in), commission paid out, balance owed (earned − paid). Top 5 clinics by revenue. Last 5 commission events.
+- **Clinics.** Their assigned clinics with: signed-order count, gross/net revenue, commission earned, last activity date. Click a clinic → list of that clinic's orders with the non-PHI projection above.
+- **Commissions.** A ledger view: every commission event in date order, with order ref, status, amount, payout ref. Filter by status, line, period. CSV export.
+- **Payouts.** History of payouts received: period, total, paid date, line-item drill-down.
+- **Profile.** Contact info, tax (W-9) info, payment preferences (ACH details), notification preferences. Audit-logged on change.
+- **Help.** A short "what does this mean" panel, contact info for Josh, how to dispute a commission calculation.
+
+### 17.3 What reps do NOT see (and the corresponding UI affordance)
+
+- Anything about patients. If a rep clicks an order they want to investigate, the portal shows them the non-PHI fields and a "Contact Peterson if you need more detail" button — which generates an email to Josh, not a magic patient view.
+- Other reps' books. Each rep sees only their own assignments.
+- Operational data (fulfillment status, denials, returns) unless those affect their commission calculation. If a commission goes from `earned` to `voided` due to a refund, the rep sees the void with a generic reason ("payment recoupment") — no clinical detail.
+
+### 17.4 Authentication and onboarding
+
+- Reps are invited by Josh via the admin portal. The invite carries a one-time link to set password + enrol TOTP — same flow as office staff (§3.2), minus the credentialing checks.
+- Reps log in at `portal.petersonmedicalequipment.com/rep` (a sub-route, not a separate domain — keeps cert/DNS simple).
+- Idle timeout: 30 minutes (less aggressive than the 15-minute provider portal because no PHI).
+- Hard logout: 8 hours.
+
+### 17.5 Accounting integration (Phase 3+)
+
+Two-direction integration with QBO via the existing QBO MCP server (already connected in this environment for reading; we'd add scoped write access for bills and journal entries):
+
+- **Read from QBO →** invoice + payment status. Drives the commission `accrued → earned` transition (§16.4).
+- **Write to QBO ←** payout bills under the rep's vendor record. Drives the commission `earned → paid` transition.
+
+The flow:
+
+```
+order signed in portal
+    │
+    ▼
+expected revenue from price book → commissions.amount accrued
+    │
+    ▼ (Peterson back-office or Brightree creates the actual invoice in QBO)
+QBO invoice created, status: open
+    │
+    ▼ (payer pays; ERA/EFT posted to QBO)
+QBO invoice paid → portal polls QBO via MCP → commission flips to 'earned'
+    │
+    ▼ (monthly)
+admin runs payout batch → portal creates QBO bill under rep vendor → commission flips to 'paid'
+    │
+    ▼ (Peterson AP pays the bill in QBO via Bill.com / ACH)
+rep sees payout in their portal; QBO ledger reflects the cash out
+```
+
+If/when Peterson adopts Brightree (or another vertical SaaS for billing), the QBO read switches to a Brightree read. The data model doesn't change — only the source of `actual_revenue_cents` for orders.
+
+### 17.6 What this is NOT
+
+- Not a CRM. Reps don't manage their pipeline here, log calls, or schedule visits. If Peterson grows to need that, we integrate with a real CRM (HubSpot, Pipedrive) — the rep portal is the "what have I earned" view, not the "what am I working on" view.
+- Not a 1099 generator. At year-end, QBO produces the rep's 1099-NEC based on bills paid through it. The portal tracks the same numbers but isn't the system of record for tax forms.
+- Not a recruiting / KPI tool. No leaderboards by default (toxic rep dynamics aside, leaderboards leak whose book is bigger to other reps). If we add aggregated benchmarks later (e.g. "you're at the 60th percentile of reps by YoY growth"), they're aggregated and anonymous.
+
+---
+
+## 18. Change log for this file
 
 | Date | What changed |
 |---|---|
 | 2026-05-14 | File created. |
+| 2026-05-14 | Added §15 admin portal, §16 sales rep tracking & commission system, §17 sales rep (non-PHI) portal. Added `SalesRep` role to §2. Added sales-rep tables to §10 data model. Added Phase 3 work for the rep system. Locked subdomain as `portal.petersonmedicalequipment.com`. New open decision D8 (commission rate model). Resolved D5: Claude-built for Phase 1, decision deferred at Phase 1 retrospective — see [`docs/build-vs-buy-portal.md`](build-vs-buy-portal.md) for the steel-manned SaaS comparison. NSC moratorium update: building anyway; moratorium expires August 2026 and Phase 1 timeline aligns. |
 
 ---
 

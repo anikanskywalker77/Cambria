@@ -136,12 +136,19 @@ Full reference: [`docs/provider-portal-spec.md`](docs/provider-portal-spec.md) (
 
 ### 5.3 Roles (the "Cambria" model — Josh's prior naming)
 
+The portal has three front-ends behind one Next.js app, gated by role at the route level:
+
+- **Provider portal** (default landing) — physicians and office staff.
+- **Admin portal** (`/admin`) — DME Admin and DME Staff.
+- **Sales rep portal** (`/rep`) — Sales Reps. Non-PHI projection only.
+
 | Role | Notes |
 |---|---|
-| **DME Admin** | Peterson super-admin; full audit; can impersonate (logged) |
-| **DME Staff** | Peterson intake/fitter; sees orders + patients; can't sign |
-| **Physician** | Credentialed prescriber; **only role that can e-sign an SWO** |
-| **Office Staff** | Prescriber's delegate (MA, scheduler); can prepare but never sign |
+| **DME Admin** | Peterson super-admin; full audit; can impersonate (logged); manages reps and commission rules; runs payout batches. Lands at `/admin`. |
+| **DME Staff** | Peterson intake/fitter; sees orders + patients; can't sign. Lands at `/admin` with reduced nav. |
+| **Physician** | Credentialed prescriber; **only role that can e-sign an SWO**. |
+| **Office Staff** | Prescriber's delegate (MA, scheduler); can prepare but never sign. |
+| **Sales Rep** | **Zero PHI access.** Sees own assigned clinics' order count + revenue, own commission ledger, own payout history. Lands at `/rep`. See `docs/provider-portal-spec.md` §17. |
 | **Patient** | Phase 2; minimal at launch |
 | **Auditor** | Time-boxed read-only; provisioned per records-request ID; auto-revoke 30 days |
 
@@ -313,7 +320,8 @@ These live in Peterson's Google Workspace, not the repo:
 - Marketing site — design / IA / deploy: [`docs/marketing-site.md`](docs/marketing-site.md)
 - AI coverage assistant — design: [`docs/ai-coverage-assistant.md`](docs/ai-coverage-assistant.md)
 - Build journal: [`docs/build-log.md`](docs/build-log.md)
-- Provider portal — full functional + technical spec: [`docs/provider-portal-spec.md`](docs/provider-portal-spec.md) ✅ drafted 2026-05-14
+- Provider portal — full functional + technical spec: [`docs/provider-portal-spec.md`](docs/provider-portal-spec.md) ✅ drafted 2026-05-14, expanded same day with admin portal (§15), sales rep tracking + commissions (§16), sales rep non-PHI portal (§17)
+- Build vs buy — steel-manned vertical-SaaS comparison: [`docs/build-vs-buy-portal.md`](docs/build-vs-buy-portal.md) ✅ 2026-05-14 (recommendation: Claude-built for Phase 1, re-evaluate at retrospective)
 - Hosting + stack — vendor decisions, BAAs, launch plan: `docs/hosting-stack-recommendation.md` *(to be authored)*
 - Original Cambria context doc (Google Drive): file ID `1GZa0zHyVsEcy65qkamueQXle48X3g9Ca`
 

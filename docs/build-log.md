@@ -4,6 +4,33 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 (late, 3) — Portal scope expanded: admin portal + sales rep system + non-PHI rep portal; D1, D5, D9 resolved
+
+Josh greenlit the portal build despite no confirmed PTAN (NSC moratorium expires August 2026, aligned with Phase 1 timeline). Several new requirements added and several open decisions resolved.
+
+**Decisions resolved:**
+- **D1 (NSC enrollment):** build proceeds. The 855S enrollment can complete during the post-moratorium window while pilot orders run on a non-billable basis if needed. Tracked in the admin compliance dashboard.
+- **D5 (build approach):** Claude-built for Phase 1, re-evaluate at the Phase 1 retrospective with real cycle-time data. To support that decision, [`docs/build-vs-buy-portal.md`](build-vs-buy-portal.md) was written — a steel-manned argument for adopting Brightree, Bonafide, or Nikohealth, with the honest cases for and against, and the strategic gap (none of them solve the provider-facing portal — they replace the back-office which Peterson hasn't started building anyway, so it's not really "build vs buy the portal," it's "build the portal AND the back-office, or buy the back-office and build only the portal"). Recommendation stands at Claude-built for Phase 1; book vendor demos in parallel for Phase 1 retrospective ammo.
+- **D9 (subdomain branding):** `portal.petersonmedicalequipment.com`. `/admin` for staff, `/rep` for sales reps, the rest for providers. "Cambria" stays internal.
+
+**New requirements added to the spec:**
+- **§15 Admin portal (internal):** separate front-end at `/admin` for DME Admin (Josh) and DME Staff. Phase 1 baseline = order queue, practice list, user management, audit-log search, records-request flow, compliance dashboard. Phase 2+ adds analytics, sales-rep management, commission reports, bulk operations, health dashboards. Explicitly NOT a replacement for accounting (QBO retained), payroll, or back-office DMEPOS billing (Brightree-territory).
+- **§16 Sales representative tracking & commission system:** every clinic assigned to a rep via time-boxed `rep_assignments`; commission attribution snapshotted to the order at signing time; commission lifecycle accrued → earned (on QBO payment posted) → paid (on payout batch) → voided (on refund/denial). Commission rules support percent-of-net, per-order flat, and tiered models. Manual monthly payout-batch flow run by Josh from the admin portal; integrates with QBO via the existing QBO MCP server to create vendor bills under the rep's record.
+- **§17 Sales rep portal (non-PHI):** third front-end at `/rep` for Sales Reps. **Hard rule: zero PHI.** Reps see HCPCS, clinic name, signing physician name + NPI, signature date, dollar amounts, and their own commission — never patient names/MBIs/DOBs/diagnosis. Enforced at the database query layer via dedicated non-PHI projection views, not just at the UI. Includes dashboard, clinic list, commission ledger, payout history, profile management. Phase 3 (after Phase 2's Excel-roster + stacked-signing differentiator).
+
+**Other spec updates:**
+- §2 roles updated — added `Sales Rep` row with the zero-PHI policy.
+- §10.1 data model — added `price_book`, `sales_reps`, `rep_assignments`, `commission_rules`, `commissions`, `payouts`. Plus a note about non-PHI projection Postgres views for rep-scoped reads.
+- §11 phase plan — admin portal baseline moved into Phase 1 scope (it has to exist on Day 1 for Josh to manage anything); the rep system + Sales Rep portal + QBO integration is a new Phase 3 (~+6 weeks after Phase 2).
+- §13 open decisions — D1, D5, D9 marked resolved; D8 added (commission rate model — Phase 3 decision; sensible defaults provided so it's not blocking).
+- §14 open questions — pruned to the actually-still-open items: Phase 1 product line confirmation, pilot clinic list, D8 commission rates (Phase 3 timing), book vendor demos, NSC tracking.
+
+**CLAUDE.md updated** in §5.3 (roles — added Sales Rep + the three-front-end-on-one-app structure) and §13 (pointers — both new docs linked).
+
+Spec is now ~10K words, ready to drive Phase 1 build start.
+
+---
+
 ## 2026-05-14 (late, 2) — Logo on the SWO PDFs + About-page copy fix
 
 Two unrelated polish items in one push:
