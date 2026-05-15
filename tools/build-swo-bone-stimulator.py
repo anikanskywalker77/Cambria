@@ -24,6 +24,7 @@ from reportlab.lib.colors import black, white, HexColor
 
 sys.path.insert(0, str(Path(__file__).parent))
 from peterson_logo import draw_logo
+from pdf_signature import add_signature_field
 
 OUT = Path(__file__).parent.parent / "marketing-site" / "assets" / "forms" / "swo-bone-stimulator-e0748.pdf"
 
@@ -351,10 +352,15 @@ def build():
     y -= 4
 
     # -------- Signature ----------
+    # NOTE: Prescriber Signature is NOT a text field — it's a real PDF /Sig
+    # signature field. ReportLab's AcroForm wrapper doesn't support /Sig, so we
+    # draw the visible label + line here, capture the rect, and post-process
+    # the saved PDF below to inject the /Sig widget at these coordinates.
     c.setFont("Helvetica", 9.5)
     c.drawString(LEFT, y, "Prescriber Signature:")
-    tf(form, "prescriber_signature", "Prescriber Signature",
-       LEFT + 110, y - 4, 240, height=14, font_size=10)
+    sig_x, sig_y, sig_w, sig_h = LEFT + 110, y - 4, 240, 14
+    c.setLineWidth(0.5)
+    c.line(sig_x, sig_y, sig_x + sig_w, sig_y)  # printed underline beneath the /Sig field
     c.drawString(LEFT + 360, y, "Date:")
     tf(form, "signature_date", "Signature Date (MM/DD/YYYY)",
        LEFT + 392, y - 4, 130, height=14, font_size=10)
@@ -377,6 +383,17 @@ def build():
 
     c.showPage()
     c.save()
+
+    # Post-process: inject the /Sig field at the signature line we drew above.
+    # Coordinates are bottom-left of the field rectangle, in PDF points.
+    add_signature_field(
+        pdf_path=OUT,
+        page_index=0,
+        x=sig_x, y=sig_y - 2, width=sig_w, height=sig_h + 2,
+        field_name="prescriber_signature",
+        tooltip="Prescriber e-signature",
+    )
+
     return OUT
 
 

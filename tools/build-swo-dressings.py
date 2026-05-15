@@ -22,6 +22,7 @@ from reportlab.lib.colors import black, white, HexColor
 
 sys.path.insert(0, str(Path(__file__).parent))
 from peterson_logo import draw_logo
+from pdf_signature import add_signature_field
 
 # Script lives in /tools; PDF output goes into the served marketing-site folder.
 OUT = Path(__file__).parent.parent / "marketing-site" / "assets" / "forms" / "swo-surgical-dressings.pdf"
@@ -467,12 +468,12 @@ def build():
     # ---------------------------------------------------------------------------
     c.setFont("Helvetica", 9.5)
     c.drawString(LEFT, y, "Prescriber Signature:")
-    form.textfield(name="prescriber_signature", tooltip="Prescriber Signature",
-                   x=LEFT + 110, y=y - 4, width=240, height=14,
-                   borderStyle="underlined", borderWidth=0.5,
-                   borderColor=BORDER, fillColor=FILL,
-                   textColor=black, fontName="Helvetica", fontSize=10,
-                   forceBorder=False)
+    # NOTE: signature is NOT a text field — it's a proper PDF /Sig field added
+    # by add_signature_field() in post-processing. We draw the visible line
+    # here and capture the rect for the post-processor.
+    sig_x, sig_y, sig_w, sig_h = LEFT + 110, y - 4, 240, 14
+    c.setLineWidth(0.5)
+    c.line(sig_x, sig_y, sig_x + sig_w, sig_y)
     c.drawString(LEFT + 360, y, "Date:")
     form.textfield(name="signature_date", tooltip="Signature Date (MM/DD/YYYY)",
                    x=LEFT + 392, y=y - 4, width=130, height=14,
@@ -505,6 +506,16 @@ def build():
 
     c.showPage()
     c.save()
+
+    # Post-process: inject the /Sig field at the signature line we drew above.
+    add_signature_field(
+        pdf_path=OUT,
+        page_index=0,
+        x=sig_x, y=sig_y - 2, width=sig_w, height=sig_h + 2,
+        field_name="prescriber_signature",
+        tooltip="Prescriber e-signature",
+    )
+
     return OUT
 
 
