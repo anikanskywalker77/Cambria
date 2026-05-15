@@ -389,19 +389,25 @@ CREATE TABLE audit_log (
   id              BIGSERIAL PRIMARY KEY,
   prev_hash       BYTEA NOT NULL,        -- SHA-256 of the previous row's row_hash
   row_hash        BYTEA NOT NULL,        -- SHA-256(prev_hash || canonical_row_bytes)
-  occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now(),  -- server-authoritative UTC
   actor_user_id   UUID NOT NULL REFERENCES users(id),
   actor_role      TEXT NOT NULL,
   action          TEXT NOT NULL,         -- e.g. 'order.sign', 'order.draft.create', 'auditor.read'
   subject_type    TEXT NOT NULL,         -- 'order' | 'patient' | 'user' | 'audit_log'
   subject_id      TEXT NOT NULL,
   data            JSONB NOT NULL,        -- redacted of PHI; typed per action
-  request_id      UUID NOT NULL          -- correlates to the HTTP request
+  request_id      UUID NOT NULL,         -- correlates to the HTTP request
+
+  -- Per-event provenance (Phase 1) — captured automatically by recordAuditEvent
+  actor_ip         INET NOT NULL,        -- real client IP (Cloudflare CF-Connecting-IP)
+  actor_user_agent TEXT NOT NULL,        -- raw User-Agent string
+  actor_geo        JSONB                 -- IP-derived geolocation: see §9.5
 );
 
 CREATE INDEX ON audit_log (occurred_at);
 CREATE INDEX ON audit_log (subject_type, subject_id);
 CREATE INDEX ON audit_log (actor_user_id);
+CREATE INDEX ON audit_log USING GIN (actor_geo jsonb_path_ops);
 
 -- Forbidden:
 REVOKE UPDATE, DELETE ON audit_log FROM ALL;
@@ -424,6 +430,41 @@ Every audit-log write goes through one helper function. Direct INSERTs into `aud
 ### 9.4 Auditor retrieval
 
 When a records request comes in (RAC, MAC, OIG), the DME Admin creates an Auditor scope (§3.4). The Auditor sees a search interface filtered to their scope, can download signed PDFs, and can export the audit_log subset. Every action is itself audit-logged.
+
+### 9.5 Per-event provenance — IP, user-agent, and IP-derived geolocation
+
+Every audit_log row captures the actor's IP, User-Agent, and an IP-derived coarse geolocation. These are populated by `recordAuditEvent()` automatically — callers don't pass them. They're especially load-bearing for `order.sign` events, where they document *who signed from where* alongside the signature itself.
+
+**`actor_ip` (`INET`):** the real client IP, taken from the `CF-Connecting-IP` header that Cloudflare adds at the edge (never `X-Forwarded-For`, which is spoofable). Stored as PostgreSQL `INET` for clean indexing and CIDR queries.
+
+**`actor_user_agent` (`TEXT`):** raw `User-Agent` header. Useful for spotting anomalies (a physician's account suddenly signing from a `curl` user-agent is a flag).
+
+**`actor_geo` (`JSONB`):** populated by a free **MaxMind GeoLite2-City** lookup at insert time. Shape:
+
+```json
+{
+  "country":         "US",
+  "subdivision":     "WA",
+  "city":            "Kennewick",
+  "postal":          "99336",
+  "latitude":        46.20,
+  "longitude":       -119.13,
+  "accuracy_radius_km": 20,
+  "lookup_source":   "geolite2-city-2026-05",
+  "is_anonymous_proxy": false,
+  "is_satellite_provider": false
+}
+```
+
+Accuracy is **city-level, not GPS-level** — typically 5–50 km radius. That's deliberate: it's enough to spot a signature event from an unexpected continent (fraud signal) without pretending we know what street the prescriber was on.
+
+**Browser GPS geolocation** (the `navigator.geolocation` API that triggers a "this site wants your location" popup) is **NOT used.** Reasons: most physicians click No → those signatures would fail or fall back to IP-based anyway; precise location adds little real audit value over IP-derived geo for fraud detection; and prompting for location on a regulated medical workflow is the kind of UX choice that erodes trust without earning it back.
+
+**Performance + cost.** GeoLite2 is a downloadable database (~70 MB, refreshed monthly). The portal keeps a recent copy on the Cloud Run image and looks up locally — sub-millisecond per call, free. A nightly cron pulls the latest database from MaxMind. No per-lookup external calls, no extra runtime cost, no hard dependency.
+
+**Auditor exposure.** The auditor scope (§3.4) by default reveals `occurred_at`, `actor_role`, `action`, and `subject_id` for events in their date range; `actor_ip` and `actor_geo` are revealed only on a higher-tier scope flag explicitly set by the DME Admin when issuing the auditor's link. Default off because most records-request audits don't need IP-level detail.
+
+**Hash-chain note.** `actor_ip`, `actor_user_agent`, and `actor_geo` are part of the canonical row bytes that go into `row_hash` (§9.2) — so tampering with provenance after the fact also breaks the chain.
 
 ---
 
@@ -843,6 +884,7 @@ If/when Peterson adopts Brightree (or another vertical SaaS for billing), the QB
 |---|---|
 | 2026-05-14 | File created. |
 | 2026-05-14 | Added §15 admin portal, §16 sales rep tracking & commission system, §17 sales rep (non-PHI) portal. Added `SalesRep` role to §2. Added sales-rep tables to §10 data model. Added Phase 3 work for the rep system. Locked subdomain as `portal.petersonmedicalequipment.com`. New open decision D8 (commission rate model). Resolved D5: Claude-built for Phase 1, decision deferred at Phase 1 retrospective — see [`docs/build-vs-buy-portal.md`](build-vs-buy-portal.md) for the steel-manned SaaS comparison. NSC moratorium update: building anyway; moratorium expires August 2026 and Phase 1 timeline aligns. |
+| 2026-05-14 | Audit-log schema (§9.1) extended with `actor_ip` (`INET`), `actor_user_agent` (`TEXT`), `actor_geo` (`JSONB`). New §9.5 documents the IP-derived geolocation source (free MaxMind GeoLite2-City, city-level accuracy, no per-lookup network calls), why we deliberately don't use browser GPS, and how auditor visibility into IP/geo is gated. All three are covered by the SHA-256 row hash so tampering breaks the chain. Phase 1 deliverable. |
 
 ---
 
