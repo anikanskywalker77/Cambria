@@ -1,0 +1,494 @@
+// Cambria — Provider Portal data model.
+//
+// Source of truth: docs/provider-portal-spec.md §10.1 (data model) and §9 (audit log).
+// Phase 1 in scope: users, practices, practice_members, patients, orders, order_items,
+// supporting_docs, audit_log. Phase 2/3 tables (roster_*, sales_*, commission_*,
+// payouts, price_book, auditor_*) are scaffolded now to avoid disruptive migrations
+// later — they're empty until those phases ship.
+//
+// Conventions:
+//   - UUIDs for primary keys (Postgres-native gen_random_uuid()).
+//   - Snake-case in the DB; camelCase in Prisma client (via @map).
+//   - All PHI-bearing tables have row-level-security applied at the app layer
+//     via dedicated query helpers; sales-rep queries go through non-PHI views
+//     (defined separately in a migration, not here — see spec §17.1).
+//   - The audit_log is APPEND ONLY. No UPDATE / DELETE allowed by Postgres role.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  dme_admin
+  dme_staff
+  physician
+  office_staff
+  sales_rep
+  patient
+  auditor
+}
+
+enum UserStatus {
+  pending      // sign-up flow not yet complete (NPPES / LEIE / state license / MFA enrolment outstanding)
+  active
+  suspended
+  revoked
+}
+
+enum PracticeMemberRole {
+  physician
+  office_staff
+}
+
+enum OrderStatus {
+  draft
+  awaiting_sig
+  in_pa_review
+  ready_to_fulfill
+  submitted
+  fulfilled
+  denied
+  cancelled
+}
+
+enum CommissionStatus {
+  accrued   // order signed, payment not yet collected
+  earned    // QBO marks invoice paid → rep is owed
+  paid      // included in a payout batch and paid out
+  voided    // refund / denial / recoupment — written off
+}
+
+enum RosterRowStatus {
+  valid
+  warning
+  error
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Users + practices
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  email         String     @unique @db.Citext
+  fullName      String     @map("full_name")
+  role          UserRole
+  status        UserStatus @default(pending)
+  npi           String?    @unique // physicians only; checked against NPPES at sign-up (spec §3.1)
+  phone         String?
+  mfaEnrolled   Boolean    @default(false) @map("mfa_enrolled")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  lastLoginAt   DateTime?  @map("last_login_at")
+  // Practitioner verification snapshot — updated on monthly LEIE refresh + sign-up
+  leieCheckedAt   DateTime? @map("leie_checked_at")
+  leieClean       Boolean?  @map("leie_clean")
+  stateLicenseOk  Boolean?  @map("state_license_ok")
+  stateLicenseCheckedAt DateTime? @map("state_license_checked_at")
+
+  practiceMembers PracticeMember[]
+  preparedOrders  Order[]          @relation("OrderPreparedBy")
+  signedOrders    Order[]          @relation("OrderSignedBy")
+  auditEvents     AuditLog[]       @relation("AuditActor")
+  salesRep        SalesRep?
+
+  @@map("users")
+  @@index([role])
+  @@index([status])
+}
+
+model Practice {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String
+  groupNpi      String?  @map("group_npi")
+  address1      String?
+  address2      String?
+  city          String?
+  state         String?  // Phase 1 enforces WA / OR at the app layer
+  zip           String?
+  phone         String?
+  fax           String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  members         PracticeMember[]
+  orders          Order[]
+  patients        Patient[]
+  repAssignments  RepAssignment[]
+
+  @@map("practices")
+  @@index([state])
+}
+
+model PracticeMember {
+  id         String             @id @default(uuid()) @db.Uuid
+  practiceId String             @map("practice_id") @db.Uuid
+  userId     String             @map("user_id") @db.Uuid
+  role       PracticeMemberRole
+  joinedAt   DateTime           @default(now()) @map("joined_at")
+  leftAt     DateTime?          @map("left_at")
+
+  practice Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("practice_members")
+  @@unique([practiceId, userId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Patients (PHI-bearing)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Patient {
+  id          String   @id @default(uuid()) @db.Uuid
+  practiceId  String   @map("practice_id") @db.Uuid
+  // PHI columns — never readable by sales-rep role (see spec §17.1)
+  firstName   String   @map("first_name")
+  lastName    String   @map("last_name")
+  dob         DateTime @db.Date
+  mbi         String?  @db.VarChar(11) // Medicare Beneficiary Identifier; null for non-Medicare
+  phone       String?
+  email       String?
+  address1    String?
+  address2    String?
+  city        String?
+  state       String?
+  zip         String?
+  // Insurance — kept as JSON to flex with payer-specific fields
+  insurance   Json?
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  practice Practice @relation(fields: [practiceId], references: [id], onDelete: Restrict)
+  orders   Order[]
+
+  @@map("patients")
+  @@index([practiceId])
+  @@index([mbi])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Orders (the core of the system)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Order {
+  id              String      @id @default(uuid()) @db.Uuid
+  practiceId      String      @map("practice_id") @db.Uuid
+  patientId       String      @map("patient_id") @db.Uuid
+  preparedByUserId String?    @map("prepared_by_user_id") @db.Uuid
+  signedByUserId   String?    @map("signed_by_user_id") @db.Uuid
+
+  // For Phase 1, Phase 2 single-line orders: hcpcs is set on the order itself.
+  // For multi-line orders (Phase 2 dressings): hcpcs is null here, items live in OrderItem.
+  hcpcs           String?     @db.VarChar(8)
+  status          OrderStatus @default(draft)
+
+  // Lifecycle timestamps
+  signedAt              DateTime? @map("signed_at")
+  inPaReviewStartedAt   DateTime? @map("in_pa_review_started_at")
+  paDecisionAt          DateTime? @map("pa_decision_at")
+  paAffirmed            Boolean?  @map("pa_affirmed")
+  fulfillmentStartedAt  DateTime? @map("fulfillment_started_at")
+  fulfilledAt           DateTime? @map("fulfilled_at")
+
+  // Output of the atomic three-way write on signature (spec §4.2 / §8)
+  signedPdfUrl    String?  @map("signed_pdf_url")        // Drive URL
+  signedPdfHash   String?  @map("signed_pdf_hash")       // SHA-256 of signed PDF
+  emailMessageId  String?  @map("email_message_id")      // Postmark message id
+
+  // Sales-rep attribution (snapshot at signing time — spec §16.2)
+  // Held nullable + assigned at signature; pre-signature drafts have no rep yet.
+  repId               String?   @map("rep_id") @db.Uuid
+  expectedRevenueCents Int?     @map("expected_revenue_cents")
+  actualRevenueCents   Int?     @map("actual_revenue_cents")
+
+  // Clinical context
+  f2fDate         DateTime? @map("f2f_date") @db.Date
+  icd10Codes      String[]  @map("icd10_codes")
+  clinicalNotes   String?   @map("clinical_notes")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  practice         Practice          @relation(fields: [practiceId], references: [id], onDelete: Restrict)
+  patient          Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  preparedBy       User?             @relation("OrderPreparedBy", fields: [preparedByUserId], references: [id])
+  signedBy         User?             @relation("OrderSignedBy", fields: [signedByUserId], references: [id])
+  rep              SalesRep?         @relation(fields: [repId], references: [id])
+  items            OrderItem[]
+  supportingDocs   SupportingDoc[]
+  commissions      Commission[]
+
+  @@map("orders")
+  @@index([practiceId])
+  @@index([patientId])
+  @@index([status])
+  @@index([signedByUserId])
+  @@index([repId])
+  @@index([signedAt])
+}
+
+model OrderItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  hcpcs       String   @db.VarChar(8)
+  description String?
+  size        String?
+  quantity    Int      @default(1)
+  frequency   String?  // e.g. "per week", "per month" — for dressings
+  notes       String?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+  @@index([orderId])
+}
+
+model SupportingDoc {
+  id          String   @id @default(uuid()) @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  uploadedByUserId String? @map("uploaded_by_user_id") @db.Uuid
+  // GCS object storage reference (spec §10)
+  gcsBucket   String   @map("gcs_bucket")
+  gcsObject   String   @map("gcs_object")
+  filename    String
+  contentType String   @map("content_type")
+  byteSize    Int      @map("byte_size")
+  sha256      String   @db.VarChar(64)
+  category    String   // 'f2f' | 'op_note' | 'imaging' | 'pa_decision' | 'other'
+  uploadedAt  DateTime @default(now()) @map("uploaded_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("supporting_docs")
+  @@index([orderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit log (append-only, hash-chained — spec §9)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id              BigInt   @id @default(autoincrement())
+  prevHash        Bytes    @map("prev_hash")
+  rowHash         Bytes    @map("row_hash") @unique
+  occurredAt      DateTime @default(now()) @map("occurred_at")
+  actorUserId     String   @map("actor_user_id") @db.Uuid
+  actorRole       UserRole @map("actor_role")
+  action          String
+  subjectType     String   @map("subject_type")
+  subjectId       String   @map("subject_id")
+  data            Json
+  requestId       String   @map("request_id") @db.Uuid
+
+  // Per-event provenance (spec §9.5)
+  actorIp         String   @map("actor_ip") @db.Inet
+  actorUserAgent  String   @map("actor_user_agent")
+  actorGeo        Json?    @map("actor_geo")
+
+  actor User @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@map("audit_log")
+  @@index([occurredAt])
+  @@index([subjectType, subjectId])
+  @@index([actorUserId])
+  @@index([action])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Roster upload (Phase 2 — Excel roster + Agent SDK parser, spec §6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model RosterUpload {
+  id            String   @id @default(uuid()) @db.Uuid
+  practiceId    String   @map("practice_id") @db.Uuid
+  uploadedByUserId String @map("uploaded_by_user_id") @db.Uuid
+  fileSha256    String   @map("file_sha256") @db.VarChar(64)
+  filename      String
+  byteSize      Int      @map("byte_size")
+  rowCountTotal Int      @default(0) @map("row_count_total")
+  rowCountValid Int      @default(0) @map("row_count_valid")
+  rowCountWarning Int    @default(0) @map("row_count_warning")
+  rowCountError Int      @default(0) @map("row_count_error")
+  parsedAt      DateTime? @map("parsed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  rows RosterRow[]
+
+  @@map("roster_uploads")
+  @@index([practiceId])
+}
+
+model RosterRow {
+  id            String          @id @default(uuid()) @db.Uuid
+  uploadId      String          @map("upload_id") @db.Uuid
+  rowNumber     Int             @map("row_number")
+  status        RosterRowStatus
+  rawRow        Json            @map("raw_row")
+  parsedRow     Json?           @map("parsed_row")
+  problems      Json?           // array of {field, severity, message}
+  draftOrderId  String?         @map("draft_order_id") @db.Uuid
+
+  upload RosterUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@map("roster_rows")
+  @@index([uploadId])
+  @@index([draftOrderId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auditors (records-request flow — spec §3.4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditorScope {
+  id              String   @id @default(uuid()) @db.Uuid
+  recordRequestId String   @map("record_request_id")
+  description     String?
+  rangeStart      DateTime @map("range_start") @db.Date
+  rangeEnd        DateTime @map("range_end") @db.Date
+  // Optional patient/order narrowing (JSON arrays of UUIDs)
+  patientIds      Json?    @map("patient_ids")
+  orderIds        Json?    @map("order_ids")
+  revealIpGeo     Boolean  @default(false) @map("reveal_ip_geo") // see spec §9.5
+  expiresAt       DateTime @map("expires_at")
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  revokedAt       DateTime? @map("revoked_at")
+
+  grants AuditorGrant[]
+
+  @@map("auditor_scopes")
+  @@index([expiresAt])
+}
+
+model AuditorGrant {
+  id        String   @id @default(uuid()) @db.Uuid
+  scopeId   String   @map("scope_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  grantedAt DateTime @default(now()) @map("granted_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  scope AuditorScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@map("auditor_grants")
+  @@unique([scopeId, userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sales rep system (Phase 3 — spec §16-17)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SalesRep {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  vendorName  String?  @map("vendor_name")    // for QBO vendor record
+  qboVendorId String?  @map("qbo_vendor_id")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user        User             @relation(fields: [userId], references: [id])
+  assignments RepAssignment[]
+  rules       CommissionRule[]
+  commissions Commission[]
+  payouts     Payout[]
+  orders      Order[]
+
+  @@map("sales_reps")
+}
+
+model RepAssignment {
+  id         String   @id @default(uuid()) @db.Uuid
+  repId      String   @map("rep_id") @db.Uuid
+  practiceId String   @map("practice_id") @db.Uuid
+  startAt    DateTime @map("start_at")
+  endAt      DateTime? @map("end_at")  // null = currently active
+
+  rep      SalesRep @relation(fields: [repId], references: [id], onDelete: Cascade)
+  practice Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@map("rep_assignments")
+  @@index([repId, practiceId])
+  @@index([practiceId])
+}
+
+model PriceBook {
+  id           String   @id @default(uuid()) @db.Uuid
+  hcpcs        String   @db.VarChar(8)
+  unitCents    Int      @map("unit_cents")
+  effectiveAt  DateTime @map("effective_at") @db.Date
+  expiresAt    DateTime? @map("expires_at") @db.Date
+  notes        String?
+
+  @@map("price_book")
+  @@index([hcpcs, effectiveAt])
+}
+
+model CommissionRule {
+  id           String   @id @default(uuid()) @db.Uuid
+  repId        String   @map("rep_id") @db.Uuid
+  // 'all' | one of the product-line keys ('bone_stim' | 'spinal_orthoses' | 'surgical_dressings')
+  scope        String
+  rateType     String   @map("rate_type")  // 'percent_of_net' | 'flat_per_order' | 'tiered'
+  parameters   Json     // shape depends on rateType (see spec §16.3)
+  effectiveAt  DateTime @map("effective_at") @db.Date
+  expiresAt    DateTime? @map("expires_at") @db.Date
+
+  rep         SalesRep    @relation(fields: [repId], references: [id], onDelete: Cascade)
+  commissions Commission[]
+
+  @@map("commission_rules")
+  @@index([repId, effectiveAt])
+}
+
+model Commission {
+  id          String           @id @default(uuid()) @db.Uuid
+  orderId     String           @map("order_id") @db.Uuid
+  repId       String           @map("rep_id") @db.Uuid
+  ruleId      String           @map("rule_id") @db.Uuid
+  amountCents Int              @map("amount_cents")
+  status      CommissionStatus @default(accrued)
+  earnedAt    DateTime?        @map("earned_at")
+  paidAt      DateTime?        @map("paid_at")
+  voidedAt    DateTime?        @map("voided_at")
+  voidReason  String?          @map("void_reason")
+  payoutId    String?          @map("payout_id") @db.Uuid
+
+  order  Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  rep    SalesRep       @relation(fields: [repId], references: [id], onDelete: Restrict)
+  rule   CommissionRule @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  payout Payout?        @relation(fields: [payoutId], references: [id])
+
+  @@map("commissions")
+  @@index([orderId])
+  @@index([repId, status])
+  @@index([payoutId])
+}
+
+model Payout {
+  id          String   @id @default(uuid()) @db.Uuid
+  repId       String   @map("rep_id") @db.Uuid
+  periodStart DateTime @map("period_start") @db.Date
+  periodEnd   DateTime @map("period_end") @db.Date
+  totalCents  Int      @map("total_cents")
+  paidAt      DateTime? @map("paid_at")
+  qboBillId   String?  @map("qbo_bill_id")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rep         SalesRep     @relation(fields: [repId], references: [id], onDelete: Restrict)
+  commissions Commission[]
+
+  @@map("payouts")
+  @@index([repId, periodEnd])
+}

@@ -4,6 +4,48 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-14 (late, 4) — Portal Phase 1 scaffolding landed (Next.js 14 + Prisma + Tailwind)
+
+The `portal/` directory is now a real Next.js 14 application that builds, type-checks, and runs locally. This is the **scaffolding** stage — pages are stubs, no DB queries, no auth integrations — but the foundation is in place and the next session can start adding features.
+
+**What landed in `portal/`:**
+
+- **Project structure:** `package.json` (Next 14.2 + Prisma 5.22 + Tailwind 3.4 + Zod 3.23 + TS 5.7), `tsconfig.json` (strict mode, App Router paths), `next.config.mjs` (with strict CSP / HSTS / no-frame-ancestors headers — same posture as the marketing site's `_headers`), `tailwind.config.ts` (brand tokens mirroring `CLAUDE.md` §4 — navy/teal/Poppins/Lato), `postcss.config.mjs`, `.env.example`, `docker-compose.dev.yml` for local Postgres, `README.md` walking through local dev setup.
+- **`prisma/schema.prisma`** — full data model from spec §10.1, all phases. Phase 1 tables (`users`, `practices`, `practice_members`, `patients`, `orders`, `order_items`, `supporting_docs`, `audit_log`) plus Phase 2/3 (`roster_uploads`, `roster_rows`, `auditor_scopes`, `auditor_grants`, `sales_reps`, `rep_assignments`, `commission_rules`, `commissions`, `payouts`, `price_book`). Hash-chain audit log includes `actor_ip` (INET), `actor_user_agent`, `actor_geo` (JSONB) per the §9.5 update earlier today. Enums for UserRole, UserStatus, OrderStatus, CommissionStatus, etc.
+- **Pure-code core in `src/lib/`:**
+  - `constants.ts` — the load-bearing regulatory constants (L0651 PA effective `2026-04-13T00:00:00-07:00`, F2F window 6 months, 10-year retention, product-line metadata with HCPCS lists and governing LCDs, the six SWO required elements). **Source of truth still `CLAUDE.md` §3 — this file mirrors it and the comment says so.**
+  - `status-engine.ts` — pure functions: `requiresPriorAuth(hcpcs, signedAtIso)` encoding the L0651 cutoff, `requiresWopd(hcpcs)`, `f2fWithinWindow(f2fDate, orderDate)`, `routeAfterSignature()` decision function, `validateOrderForSigning()` deterministic server-side validation. No DB, no side effects → easy unit tests.
+  - `audit.ts` — `recordAuditEvent()` with advisory-lock-protected hash chain, server-side PHI field stripper that throws in dev, `verifyChain()` walker for the daily cron + admin "verify chain" button. Lists the canonical action verbs in comments so we don't invent ad-hoc names.
+  - `auth.ts` — Phase 1 mock auth gated by `DEV_MOCK_AUTH=true` (with hard `assertProductionAuthSafety()` startup check that throws if mock auth is on in any non-dev environment). Real Keycloak integration replaces `getCurrentSession()` later — the `Session` interface is the contract callers depend on.
+  - `prisma.ts` — singleton Prisma client (the standard Next.js dev-mode hot-reload pattern).
+- **App Router pages:**
+  - `/` (`src/app/page.tsx`) — provider home; redirects role-appropriately (admin→/admin, rep→/rep, providers stay).
+  - `/admin` — admin dashboard stub with 6 tile cards for the Phase 1 admin baseline (order queue, practices, users, audit log, records requests, compliance dashboard).
+  - `/rep` — sales-rep dashboard stub with the four KPI tiles + clinics + commission ledger placeholders. **No PHI in markup, ever.**
+  - `/login` — mock-role picker for local dev (5 roles); shows a "Keycloak not provisioned" message in non-mock environments.
+  - `PortalShell` component — shared header/footer chrome with per-area visual treatment (admin gets a navy bar to signal "back office"; rep + provider stay light).
+- **`src/styles/globals.css`** — Tailwind base + brand-aligned `.btn`, `.btn-primary`, `.btn-navy`, `.btn-ghost`, `.card`, `.pill` component classes.
+
+**Verified locally:**
+- `npm install` → 399 packages, no install errors
+- `npx prisma generate` → client generated cleanly against the full schema
+- `npx tsc --noEmit` → zero TypeScript errors across the whole portal
+- `npm run build` → Next.js production build succeeds, all 5 routes compile, ~96 KB First Load JS per route (no DB calls yet so all routes prerender as static)
+
+**Explicitly NOT in this commit (next-session worklog):**
+- tRPC routers + Zod schemas (the API layer)
+- Real auth (Keycloak)
+- Practitioner sign-up flow (NPPES + LEIE + state-license verification)
+- The E0748 wizard (the Phase 1 marquee deliverable)
+- Atomic three-way write on signature (Postmark + Drive + Postgres)
+- Seed script for synthetic dev data
+
+**To run locally:** see `portal/README.md` — `npm install`, bring up the docker-compose Postgres, `cp .env.example .env.local`, `npm run db:push`, `npm run dev`, open localhost:3000.
+
+**CLAUDE.md** §8 repo-structure tree updated to reflect the new `portal/` and `tools/` directory layouts.
+
+---
+
 ## 2026-05-14 (late, 3) — Portal scope expanded: admin portal + sales rep system + non-PHI rep portal; D1, D5, D9 resolved
 
 Josh greenlit the portal build despite no confirmed PTAN (NSC moratorium expires August 2026, aligned with Phase 1 timeline). Several new requirements added and several open decisions resolved.

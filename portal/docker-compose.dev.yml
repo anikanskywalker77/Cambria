@@ -1,0 +1,31 @@
+# Local-dev Postgres for the Cambria portal.
+# Production database is Cloud SQL for PostgreSQL 16 in us-west1 (per spec §5.2).
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   npm run db:push     # creates the schema in the empty DB
+#
+# The DATABASE_URL in .env.local should point at this:
+#   postgresql://cambria:cambria@localhost:5432/cambria?schema=public
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cambria-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cambria
+      POSTGRES_PASSWORD: cambria
+      POSTGRES_DB: cambria
+    ports:
+      - "5432:5432"
+    volumes:
+      - cambria_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cambria -d cambria"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  cambria_postgres_data:

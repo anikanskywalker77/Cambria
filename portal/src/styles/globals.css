@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brand tokens — same palette as the marketing site so the portal feels
+   continuous with petersonmedicalequipment.com (CLAUDE.md §4). */
+@layer base {
+  :root {
+    --color-navy: #0B2545;
+    --color-navy-deep: #061E3A;
+    --color-teal: #13B5A5;
+    --color-teal-dark: #0E8E82;
+    --color-cloud: #F5F7FA;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-white text-slate font-body antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-ui text-navy;
+  }
+
+  /* Focus visibility — accessibility */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-offset-2 ring-teal;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5
+           font-ui font-semibold text-sm leading-none transition;
+  }
+  .btn-primary {
+    @apply btn bg-teal text-[#06231F] hover:bg-teal-dark hover:text-white;
+  }
+  .btn-navy {
+    @apply btn bg-navy text-white hover:bg-navy-deep;
+  }
+  .btn-ghost {
+    @apply btn border-2 border-navy text-navy hover:bg-navy hover:text-white;
+  }
+  .card {
+    @apply bg-white border border-line rounded-lg p-5 shadow-elevation-sm;
+  }
+  .pill {
+    @apply inline-block px-3 py-1 rounded-full text-xs font-ui font-semibold uppercase tracking-wide;
+  }
+}

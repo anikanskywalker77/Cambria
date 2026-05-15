@@ -9,6 +9,9 @@ out/
 dist/
 build/
 
+# TypeScript incremental build cache (regenerated)
+*.tsbuildinfo
+
 # Environment & secrets — NEVER commit these
 .env
 .env.*

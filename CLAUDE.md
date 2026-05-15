@@ -228,18 +228,29 @@ cambria/
 ├─ README.md                  ← human-facing repo intro
 ├─ .gitignore
 ├─ docs/
-│  ├─ build-log.md            ← append-only build journal
-│  ├─ marketing-site.md       ← marketing-site design/IA/deploy doc
-│  ├─ ai-coverage-assistant.md← AI feature design doc
-│  ├─ provider-portal-spec.md ← drafted 2026-05-14
+│  ├─ build-log.md             ← append-only build journal
+│  ├─ marketing-site.md        ← marketing-site design/IA/deploy doc
+│  ├─ ai-coverage-assistant.md ← AI feature design doc
+│  ├─ provider-portal-spec.md  ← drafted + expanded 2026-05-14 (admin portal + sales rep system + non-PHI rep portal added)
+│  ├─ build-vs-buy-portal.md   ← steel-manned SaaS comparison (recommendation: Claude-built for Phase 1)
+│  ├─ secrets-rotation.md      ← live secret inventory + rotation procedures
 │  └─ hosting-stack-recommendation.md ← (future)
-├─ marketing-site/            ← hand-built static site (deploys to Cloudflare Pages)
+├─ marketing-site/             ← hand-built static site (deploys to Cloudflare Pages, live)
 │  ├─ index.html · about.html · providers.html · patients.html · insurance.html · contact.html
-│  ├─ products/               ← 3 product pages
-│  ├─ assets/css · assets/js · assets/img
-│  ├─ functions/api/          ← Cloudflare Pages Functions (coverage-assistant, contact)
+│  ├─ products/                ← 3 product pages
+│  ├─ assets/css · assets/js · assets/img · assets/forms (3 fillable SWO PDFs)
+│  ├─ functions/api/           ← Cloudflare Pages Functions (coverage-assistant, contact)
 │  ├─ _headers · _redirects · robots.txt · sitemap.xml
-└─ portal/                    ← (future) Next.js 14 app — see §5.2
+├─ portal/                     ← Next.js 14 + TypeScript + Prisma (scaffolded 2026-05-14)
+│  ├─ package.json · tsconfig · next.config.mjs · tailwind.config.ts
+│  ├─ docker-compose.dev.yml   ← local Postgres for dev
+│  ├─ prisma/schema.prisma     ← full data model — spec §10.1, all phases
+│  └─ src/
+│     ├─ app/                  ← App Router (provider home, /admin, /rep, /login)
+│     ├─ components/PortalShell.tsx  ← header/footer chrome per portal area
+│     ├─ lib/                  ← constants, status-engine, audit, auth, prisma
+│     └─ styles/globals.css    ← Tailwind base + brand component classes
+└─ tools/                      ← Python build scripts for the SWO PDFs (peterson_logo, pdf_signature, build-swo-*)
 ```
 
 ---
