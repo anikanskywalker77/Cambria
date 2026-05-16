@@ -4,6 +4,24 @@ Append-only. Newest entry at the top. Every meaningful change gets an entry: wha
 
 ---
 
+## 2026-05-16 — Spinal-bracing SWO rebuilt from scratch (Peterson now owns the source)
+
+The third and final vendor PDF (the Trend-line spinal-bracing SWO) is now also a custom-built ReportLab form. Peterson owns the source script and can iterate on it the same way as the other two.
+
+- **New: `tools/build-swo-spinal-bracing.py`** — replaces the vendor PDF in-place at `marketing-site/assets/forms/swo-spinal-bracing.pdf`. Same path = all existing site links and previously-distributed URLs continue to work. Single page, US Letter, 38 fillable fields (28 text + 9 checkboxes + **1 real `/Sig` signature field**, NOT a typeable text field).
+- **Visual layout matches the other two custom forms** — Peterson logo letterhead (logo top-left, Phone+Fax top-right via the `peterson_logo` helper), same Patient/Provider table, same Insurance section, same attestation paragraph, same footer.
+- **Item table** — `L0457` (Trend Correx TLSO), `L0464` (Trend Correx SP TLSO), `L0648` (Trend LSO), `L0650` (Trend Pro LSO), `L0651` (Trend Extend LSO), plus an Other row. Each PA-required code (L0648 / L0650 / L0651) is annotated with "PA + WOPD required" inline; L0651 also carries the "(eff. 2026-04-13)" date so the form itself reminds providers of the new requirement.
+- **WOPD reminder** — italic note paragraph below the item table, word-wrapped to fit page width (first draft truncated; fixed before deploy).
+- **Diagnosis ICD-10 section** with three rows — same structure as the vendor form but cleaner.
+- All other sections mirror the other two custom forms for consistency.
+- Source code for the form is under `tools/`; **Peterson now has full rights and ownership** of all three SWO templates.
+
+**Page-size mentions updated** — `/products/spinal-orthoses` and `/providers` previously said the file was 110 KB (vendor); now correctly say 35 KB. The `/products/spinal-orthoses` description got an additional emphasis line that "every field on this form is fillable in any PDF reader" plus the explicit PA+WOPD reminder, matching the language we used on the bone-stim page.
+
+To regenerate after edits: `python tools/build-swo-spinal-bracing.py`. Same dependencies as the other two scripts (`reportlab`, `pypdf`, `svglib`).
+
+---
+
 ## 2026-05-14 (late, 4) — Portal Phase 1 scaffolding landed (Next.js 14 + Prisma + Tailwind)
 
 The `portal/` directory is now a real Next.js 14 application that builds, type-checks, and runs locally. This is the **scaffolding** stage — pages are stubs, no DB queries, no auth integrations — but the foundation is in place and the next session can start adding features.
